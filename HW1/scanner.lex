@@ -86,11 +86,14 @@ undef_es ()
         string_buf[string_pos++] = (char)val;
     }
 }
-<STRING_>"\\"[abef\\v\'\"?{"nnn"}]  {
+<STRING_>"\\"[^ntr0x"\\]  {
     output::errorUndefinedEscape(yytext);
 }
-<STRING_>"\\x"([0-9A-Fa-f]?|[0-9A-Fa-f][^0-9A-Fa-f])     {
-    output::errorUndefinedEscape(yytext + 1);
+<STRING_>"\\x\""     {
+output::errorUndefinedEscape("x");
+}
+<STRING_>"\\x"([^\"]?|[^\"][^\"]?)     {
+output::errorUndefinedEscape(yytext + 1);
 }
 
 
