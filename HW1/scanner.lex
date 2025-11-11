@@ -2,8 +2,13 @@
     #include "tokens.hpp"
 %}
 
+%x COMMENT_
+%x STRING_
+
 letter  ([a-zA-Z])
 digit   ([0-9])
+nl      ([\n\r] | \r | \n)
+num     (0 | [1-9][0-9]*)
 
 %%
 
@@ -16,13 +21,21 @@ digit   ([0-9])
 "not"   { return NOT; }
 "true"  { return TRUE; }
 "false"     { return FALSE; }
-"return"    { return RETRUN; }
+"return"    { return RETURN; }
 "if"    { return IF; }
 "else"  { return ELSE; }
 "while" { return WHILE; }
 "break" { return BREAK; }
 "continue"  { return CONTINUE; }
 ";"     { return SC; }
+
+"//"            { BEGIN(COMMENT_); }
+<COMMENT_>nl    { BEGIN(INITIAL); }
+<COMMENT_>.     { }
+
+num     { return NUM; }
+num"b"  { return NUM_B; }
+
 
 %%
 
