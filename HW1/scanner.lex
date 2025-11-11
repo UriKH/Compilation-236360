@@ -1,5 +1,6 @@
 %{
     #include "tokens.hpp"
+    #include "output.hpp"
     #include <string.h>
 
     #define MAX_STRING_LEN 1024
@@ -59,39 +60,47 @@ undef_es ()
 
 
 \"  { BEGIN(STRING_); string_pos = 0; }
-<STRING_>\" { 
+<STRING_>\" {
     BEGIN(INITIAL);
     string_buf[string_pos] = '\0';
-    return STRING; 
+    yytext = string_buf;
+    return STRING;
 }
 
-/* Deal with escape sequences */
-<STRING_>"\\n"              { string_buf[string_pos++] = '\n'; }
-<STRING_>"\\t"              { string_buf[string_pos++] = '\t'; }
-<STRING_>"\\r"              { string_buf[string_pos++] = '\r'; }
-<STRING_>"\\0"              { string_buf[string_pos++] = '\0'; }
-<STRING_>"\\\""             { string_buf[string_pos++] = '\"'; }
-<STRING_>"\\\\"             { string_buf[string_pos++] = '\\'; }
-<STRING_>("\\x"[0-9A-Fa-f]{2}) {
+<STRING_>\n    {
+    output::errorUnclosedString();
+}
+
+<STRING_>"\\n"      { string_buf[string_pos++] = '\n'; }
+<STRING_>"\\t"      { string_buf[string_pos++] = '\t'; }
+<STRING_>"\\r"      { string_buf[string_pos++] = '\r'; }
+<STRING_>"\\0"      { string_buf[string_pos++] = '\0'; }
+<STRING_>"\\\""     { string_buf[string_pos++] = '\"'; }
+<STRING_>"\\\\"     { string_buf[string_pos++] = '\\'; }
+<STRING_>"\\x"[0-9A-Fa-f]{2} {
     unsigned int val;
     sscanf(yytext + 2, "%2x", &val);
-    string_buf[string_pos++] = (char)val;
+    if (val < 0x20 || val > 0x7E) {
+        output::errorUndefinedEscape(yytext + 1);
+    } else {
+        string_buf[string_pos++] = (char)val;
+    }
+}
+<STRING_>"\\"[abef\\v\'\"?{"nnn"}]  {
+    output::errorUndefinedEscape(yytext);
+}
+<STRING_>"\\x"([0-9A-Fa-f]?|[0-9A-Fa-f][^0-9A-Fa-f])     {
+    output::errorUndefinedEscape(yytext + 1);
 }
 
-/* put valid printable char in string */
-<STRING_>({printable_char}|[ \t])   { string_buf[string_pos++] = yytext; }
 
-
-<STRING_>(^({printable_char})) {
-    output::errorUnknownChar(yytext);
+<STRING_>({printable_char}|[ \t]) {
+    string_buf[string_pos++] = yytext[0];
 }
 
-
-/*  */
-
-
-<STRING_>({printable_char}|{escape_seq}|[ \t])     { }
-<STRING_>[^\"]  { printf("bad"); }
+<STRING_>[^{printable_char}] {
+    output::errorUnknownChar(yytext[0]);
+}
 
 {whitespace} { }
 
