@@ -28,11 +28,20 @@ num     (0 | [1-9][0-9]*)
 "break" { return BREAK; }
 "continue"  { return CONTINUE; }
 ";"     { return SC; }
-
+","     { return COMMA; }
+"("     { return LPAREN; }
+")"     { return RPAREN; }
+"{"     { return LBRACE; }
+"}"     { return RBRACE; }
+"["     { return LBRACK; }
+"]"     { return RBRACK; }
+"="     { return ASSIGN; }
+[=!<>]"=" | [<>]   { return RELOP; }
+[+-*/]             { return BINOP; }
 "//"            { BEGIN(COMMENT_); }
 <COMMENT_>nl    { BEGIN(INITIAL); }
 <COMMENT_>.     { }
-
+{letter}[{letter}{digit}]*  { return ID; }
 num     { return NUM; }
 num"b"  { return NUM_B; }
 
