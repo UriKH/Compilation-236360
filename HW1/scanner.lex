@@ -67,6 +67,9 @@ undef_es ()
     return STRING;
 }
 
+<STRING_><<EOF>> {
+	output::errorUnclosedString();
+}
 <STRING_>\n    {
     output::errorUnclosedString();
 }
@@ -86,8 +89,11 @@ undef_es ()
         string_buf[string_pos++] = (char)val;
     }
 }
-<STRING_>"\\"[^ntr0x"\\]  {
+<STRING_>"\\\0" {
     output::errorUndefinedEscape(yytext);
+}
+<STRING_>"\\"[^ntr0x"\\]  {
+    output::errorUndefinedEscape(yytext + 1);
 }
 <STRING_>"\\x\""     {
 output::errorUndefinedEscape("x");
