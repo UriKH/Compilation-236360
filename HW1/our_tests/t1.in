@@ -1,0 +1,12 @@
+badbad
+
+// very long complex comment \n \t    jdncjsnjcdns
+
+
+int main(int argc){
+	char c123 = prinf("%s \"\n\t \r \x7A \\ \0");
+	int x1 = 9781000;
+	int bin = 1234567b;
+	// another comment
+	printf("The answer is 42");
+}

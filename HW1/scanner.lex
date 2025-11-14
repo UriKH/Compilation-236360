@@ -13,7 +13,7 @@
 
 letter  ([a-zA-Z])
 digit   ([0-9])
-nl      ([\n\r]|\r|\n)
+nl      ([\n\r]|\n\r)
 num     (0|[1-9][0-9]*)
 whitespace ([\t\r\n ])
 printable_char ([\x20-\x7E])
@@ -52,7 +52,7 @@ undef_es ()
 
 
 "//"            { BEGIN(COMMENT_); return COMMENT; }
-<COMMENT_>{nl}    { BEGIN(INITIAL); }
+<COMMENT_>{nl}    { BEGIN(INITIAL); yylineno++; }
 <COMMENT_>.     { }
 {letter}({letter}|{digit})*  { return ID; }
 {num}     { return NUM; }
@@ -105,7 +105,11 @@ output::errorUndefinedEscape(yytext + 1);
     output::errorUnknownChar(yytext[0]);
 }
 
+{nl} { yylineno++; }
+
 {whitespace} { }
+
+. { output::errorUnknownChar(yytext[0]); }
 
 %%
 
