@@ -17,8 +17,6 @@ nl      ([\n\r]|\n\r)
 num     (0|[1-9][0-9]*)
 whitespace ([\t\r\n ])
 printable_char ([\x20-\x7E])
-escape_seq (\\([\\\"nrt0]|x[0-9A-Fa-f]{2}))
-undef_es ()
 
 
 %%
@@ -102,12 +100,13 @@ output::errorUndefinedEscape("x");
 output::errorUndefinedEscape(yytext + 1);
 }
 
-
 <STRING_>({printable_char}|[ \t]) {
     string_buf[string_pos++] = yytext[0];
 }
-
-<STRING_>[^{printable_char}] {
+<STRING_>\n {
+    output::errorUnclosedString();
+}
+<STRING_>. {
     output::errorUnknownChar(yytext[0]);
 }
 

@@ -36,8 +36,11 @@ if __name__ == '__main__':
             '"bad \\ escape"', # 
             '"hex \\x10"', # bad hex
             '"hex \\x0"', # bad str
-            '"bad \\."', # dad str
-            '"simple" "also \'simple\'" "escape new lines\\n" "hex2 \\x34" "hi\\tow\\tare\\tyou" ""', # good str
-            '@','#','~', '?' # bad chars   
+            '"bad \\."', # bad str
+            '"unclosed\n"', # bad str (unclosed)
+            '"unclosed\n\r"', # bad str (unclosed)
+            '"unclosed\r\n"', # bad str (unkown char \r)
+            '"@!#-_+*.?/~%^&" "simple" "also \'simple\'" "escape new lines\\n" "hex2 \\x34" "hi\\tow\\tare\\tyou" ""', # good str
+            '@','#','~', '?' # bad characters 
         ]
     )
