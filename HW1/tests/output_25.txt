@@ -1,1 +1,1 @@
-"@!#-_+*.?/~%^&" "simple" "also 'simple'" "escape new lines\n" "hex2 \x34" "hi\tow\tare\tyou" ""
+"@!#-_+*.?/~%^&'" "simple" "also 'simple'" "escape new lines\n" "hex2 \x34" "hi\tow\tare\tyou" ""

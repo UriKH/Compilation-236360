@@ -40,7 +40,7 @@ if __name__ == '__main__':
             '"unclosed\n"', # bad str (unclosed)
             '"unclosed\n\r"', # bad str (unclosed)
             '"unclosed\r\n"', # bad str (unkown char \r)
-            '"@!#-_+*.?/~%^&" "simple" "also \'simple\'" "escape new lines\\n" "hex2 \\x34" "hi\\tow\\tare\\tyou" ""', # good str
+            '"@!#-_+*.?/~%^&\'" "simple" "also \'simple\'" "escape new lines\\n" "hex2 \\x34" "hi\\tow\\tare\\tyou" ""', # good str
             '@','#','~', '?' # bad characters 
         ]
     )

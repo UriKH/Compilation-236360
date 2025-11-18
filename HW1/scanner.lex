@@ -103,9 +103,6 @@ output::errorUndefinedEscape(yytext + 1);
 <STRING_>({printable_char}|[ \t]) {
     string_buf[string_pos++] = yytext[0];
 }
-<STRING_>\n {
-    output::errorUnclosedString();
-}
 <STRING_>. {
     output::errorUnknownChar(yytext[0]);
 }
