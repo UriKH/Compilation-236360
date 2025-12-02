@@ -10,6 +10,8 @@
 
 %x COMMENT_
 %x STRING_
+%option yylineno
+%option noyywrap
 
 letter  ([a-zA-Z])
 digit   ([0-9])
@@ -107,13 +109,9 @@ output::errorUndefinedEscape(yytext + 1);
     output::errorUnknownChar(yytext[0]);
 }
 
-{nl} { yylineno++; }
-
-{whitespace} { }
+{whitespace}|{nl} { }
 
 . { output::errorUnknownChar(yytext[0]); }
 
 %%
-
-int yywrap() { return 1; }
 
