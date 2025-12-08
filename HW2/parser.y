@@ -51,7 +51,8 @@ using namespace std;
 %nonassoc NELSE
 %nonassoc ELSE
 %right ASSIGN
-%left OR AND 
+%left OR
+%left AND 
 %left EQ NE
 %left LE GE LT GT
 %left ADD SUB
