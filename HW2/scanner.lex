@@ -1,7 +1,7 @@
 %{
-    #include "parser.tab.h"
-    #include "output.hpp"
     #include "nodes.hpp"
+    #include "output.hpp"
+    #include "parser.tab.h"
     #include <string.h>
 %}
 
@@ -42,10 +42,10 @@
 \-        { return SUB; }
 \*        { return MUL; }
 \/        { return DIV; }
-[a-zA-Z][a-zA-Z0-9]*    { return ID; }
-(0|[1-9][0-9]*)     { return NUM; }
-(0b|[1-9][0-9]*b)   { return NUM_B; }
-"([^\n\r\"\\]|\\[rnt\"\\])+"     { return STRING; }
+[a-zA-Z][a-zA-Z0-9]*    { yylval = std::make_shared<ast::ID>(yytext);  return ID; }
+(0|[1-9][0-9]*)     { yylval = std::make_shared<ast::Num>(yytext); return NUM; }
+(0b|[1-9][0-9]*b)   { yylval = std::make_shared<ast::NumB>(yytext); return NUM_B; }
+(\"([^\n\r\"\\]|\\[rnt\"\\])+\")     { yylval = std::make_shared<ast::String>(yytext); return STRING; }
 
 
 \/\/[^\r\n]*[\r|\n|\r\n]?   { }  // single line comment ignore

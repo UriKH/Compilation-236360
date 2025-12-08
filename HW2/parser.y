@@ -67,7 +67,7 @@ Program:  Funcs { program = dynamic_pointer_cast<ast::Funcs>($1); }
 ;
 
 // TODO: Define grammar here
-Funcs: /* empty */ { $$ = make_shared<ast::Funcs>(nullptr); }
+Funcs: /* empty */ { $$ = make_shared<ast::Funcs>(); }
     | FuncDecl Funcs { $$ = dynamic_pointer_cast<ast::Funcs>($2); dynamic_pointer_cast<ast::Funcs>($$)->push_front(dynamic_pointer_cast<ast::FuncDecl>($1)); }
 ;
 
@@ -79,7 +79,7 @@ RetType: VOID { $$ = make_shared<ast::Type>(ast::BuiltInType::VOID); }
     | Type { $$ = dynamic_pointer_cast<ast::Type>($1); }
 ;
 
-Formals: /* empty */ { $$ = make_shared<ast::Formals>(nullptr); }
+Formals: /* empty */ { $$ = make_shared<ast::Formals>(); }
     | FormalsList { $$ = dynamic_pointer_cast<ast::Formals>($1); }
 ;
 
@@ -109,15 +109,15 @@ Statement: LBRACE Statements RBRACE { $$ = $2; }
 ;
 
 Call: ID LPAREN ExpList RPAREN { $$ = make_shared<ast::Call>(dynamic_pointer_cast<ast::ID>($1), dynamic_pointer_cast<ast::ExpList>($3)); }
-    | ID LPAREN RPAREN { $$ = make_shared<ast::Call>(dynamic_pointer_cast<ast::ID>($1), nullptr); }
+    | ID LPAREN RPAREN { $$ = make_shared<ast::Call>(dynamic_pointer_cast<ast::ID>($1)); }
 ;
 
 ExpList: Exp { $$ = make_shared<ast::ExpList>(dynamic_pointer_cast<ast::Exp>($1)); }
     | Exp COMMA ExpList { $$ = dynamic_pointer_cast<ast::ExpList>($3); dynamic_pointer_cast<ast::ExpList>($$)->push_front(dynamic_pointer_cast<ast::Exp>($1)); }
 ;
 
-Type: INT { $$ = make_shared<ast::Type>(ast::BuiltInType::INT); }
-    | BYTE { $$ = make_shared<ast::Type>(ast::BuiltInType::BYTE); }
+Type: INT { $$ = make_shared<ast::Type>(ast::BuiltInType::INT);; }
+    | BYTE { $$ = make_shared<ast::Type>(ast::BuiltInType::BYTE);; }
     | BOOL { $$ = make_shared<ast::Type>(ast::BuiltInType::BOOL); }
 ;
 
