@@ -147,7 +147,8 @@ namespace output {
 
     void MyVisitor::visit(ast::ID &node) {}
 
-    void MyVisitor::visit(ast::If &node) {}
+    void MyVisitor::visit(ast::If &node) {
+    }
 
     void MyVisitor::visit(ast::Or &node) {}
 
@@ -171,11 +172,15 @@ namespace output {
 
     void MyVisitor::visit(ast::Break &node) {}
 
-    void MyVisitor::visit(ast::Funcs &node) {}
+    void MyVisitor::visit(ast::Funcs &node) {
+
+    }
 
     void MyVisitor::visit(ast::RelOp &node) {}
 
-    void MyVisitor::visit(ast::While &node) {}
+    void MyVisitor::visit(ast::While &node) {
+
+    }
 
     void MyVisitor::visit(ast::Assign &node) {}
 
@@ -190,25 +195,7 @@ namespace output {
     void MyVisitor::visit(ast::Formals &node) {}
 
     void MyVisitor::visit(ast::VarDecl &node) {
-        /**
-         * 1. get new offset
-         * 2. check if exists table[id][i].offset < new offset (if true error)
-         * 3. add to scope stack + add to symbol table + offset stack
-         * 4. (if new type, add to type table)
-         */
-        // compute new offsets
-        int offset = -1;
-        if (!offset_stack.empty()) {
-            offset = offset_stack.top()
-        }
-        // check existence
-        if (symbolTable.find(node.value) == symbolTable.end()) { //not found
-            symbolTable[node.value] = SymbolTableRow(node.value, {offset + 1})
-        }
 
-        // add to scope sack
-
-        symbolTable[node.value] =
     }
 
     void MyVisitor::visit(ast::Continue &node) {}

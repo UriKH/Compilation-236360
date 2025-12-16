@@ -66,22 +66,61 @@ namespace output {
 
     class MyVisitor : public Visitor {
     private:
-        struct SymbolTableRow {
+        struct SymbolData {
             std::string name;
-            // TODO: extrac properties
-
-            SymbolTableRow(const std::string)
+            int offset;
+            ast::BuiltInType type;
         };
 
-        struct Scope{
-            std::stack<std::string> scope;
+        struct SymbolTable{
+            std::shared_ptr<SymbolTable> parent;
+            bool is_loop_scope;
+            std::map<std::string, SymbolData> table;
+
+            SymbolTable(const std::shared_ptr<SymbolTable>& parent, bool is_loop_scope):
+                parent(parent), is_loop_scope(is_loop_scope) {}
+
+            void insert(const SymbolData& sym_data){
+                if (validate_existence(std::shared_ptr<SymbolTable>(this), sym_data.name) != nullptr){
+                    // TODO: throw error! - try to add var and it exist
+                }
+                table[sym_data.name] = sym_data;
+            }
+
+            static std::shared_ptr<SymbolData> validate_existence(
+                    const std::shard_ptr<SymbolTable>& sym_tab, const std::string& id){
+                auto& lookup = sym_tab->table.find(id);
+                if (lookup != sym_tab->table.end())
+                    return std::shared_ptr<SymbolData>(*lookup);
+                if (sym_tab->parent == nullptr)
+                    return nullptr;
+                return validate_existence(sym_tab->parent, id);
+            }
         };
 
         ScopePrinter scopePrinter;
 
-        std::stack<Scope> scope_stack;
+        std::stack<SymbolTable> table_stack;
         std::stack<int> offset_stack;
-        std::map<std::string, std::vector<SymbolTableRow>> symbolTable;
+
+        void begin_scope(const std::shared_ptr<SymbolTable>& parent, bool is_loop_scope){
+            table_stack.push(SymbolTable(parent, is_loop_scope));
+        }
+
+        void end_scope(){
+            for (size_t i = 0; i < table_stack.top().table.size(); i++)
+                offset_stack.pop();
+            table_stack.pop()
+        }
+
+        void insert(const SymbolData& sym_data, int num_args=0){
+            table_stack.top().insert(sym_data);
+
+            if (offset_stack.empty())
+                offset_stack.push(-1 * num_args);
+            else
+                offset_stack.push(offset_stack.top() + 1);
+        }
 
     public:
         MyVisitor();
