@@ -145,9 +145,29 @@ namespace output {
 
     MyVisitor::MyVisitor() {}
 
-    void MyVisitor::visit(ast::ID &node) {}
+    void MyVisitor::visit(ast::ID &node) {
+        std::shared_ptr<SymbolData> data = validate_existence_by_name(node.value);
+
+        // Check if we tried to use identifier without him being declared.
+        if (data == nullptr)
+            errorUndef(node.line, node.value);
+
+        // Check if we tried to use a function identifier as var
+        if (data->is_func)
+            errorDefAsFunc(node.line, node.value);
+
+    }
 
     void MyVisitor::visit(ast::If &node) {
+//        // Adding to scope stack
+//        if (table_stack.top() == nullptr)
+//
+//        else
+//            begin_scope(table_stack.top(), false);
+//
+//        node.condition->accept()
+//
+//        end_scope();
     }
 
     void MyVisitor::visit(ast::Or &node) {}
@@ -160,7 +180,23 @@ namespace output {
 
     void MyVisitor::visit(ast::Bool &node) {}
 
-    void MyVisitor::visit(ast::Call &node) {}
+    void MyVisitor::visit(ast::Call &node) {
+        std::shared_ptr<SymbolData> func_data = validate_existence_by_name(node.func_id->value);
+
+        // Func isn't declared
+        if (func_data == nullptr)
+            errorUndefFunc(node.line, node.func_id->value);
+
+        // We try to use func but it's a var
+        if (!func_data->is_func)
+            errorDefAsVar(node.line, node.func_id->value);
+
+        // TODO: check func_types if matching
+
+        node.args->accept(*this);
+
+        node.args->accept(*this);
+    }
 
     void MyVisitor::visit(ast::Cast &node) {}
 
@@ -172,9 +208,7 @@ namespace output {
 
     void MyVisitor::visit(ast::Break &node) {}
 
-    void MyVisitor::visit(ast::Funcs &node) {
-
-    }
+    void MyVisitor::visit(ast::Funcs &node) {}
 
     void MyVisitor::visit(ast::RelOp &node) {}
 
@@ -190,17 +224,31 @@ namespace output {
 
     void MyVisitor::visit(ast::String &node) {}
 
-    void MyVisitor::visit(ast::ExpList &node) {}
+    // we have ExpList only for function calls
+    void MyVisitor::visit(ast::ExpList &node) {
+
+    }
 
     void MyVisitor::visit(ast::Formals &node) {}
 
     void MyVisitor::visit(ast::VarDecl &node) {
 
+        std::shared_ptr<SymbolData> data = validate_existence_by_name(node.id->value);
+
+        // Check if we already declared this id (name & type)
+        if (data != nullptr && data->type == node.type->type) {
+            errorDef(node.line, node.id->value);
+        } else {
+            std::shared_ptr<SymbolData> new_data = std::make_shared<SymbolData>(node.id->value, node.type->type);
+            insert(new_data);
+        }
     }
 
     void MyVisitor::visit(ast::Continue &node) {}
 
-    void MyVisitor::visit(ast::FuncDecl &node) {}
+    void MyVisitor::visit(ast::FuncDecl &node) {
+
+    }
 
     void MyVisitor::visit(ast::Statements &node) {}
 }

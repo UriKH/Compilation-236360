@@ -1,6 +1,7 @@
 #ifndef OUTPUT_HPP
 #define OUTPUT_HPP
 
+#include <utility>
 #include <vector>
 #include <string>
 #include <map>
@@ -68,30 +69,36 @@ namespace output {
     private:
         struct SymbolData {
             std::string name;
-            int offset;
             ast::BuiltInType type;
+            int offset;
+            bool is_func;
+            std::vector<ast::BuiltInType> func_types;
+
+            SymbolData(std::string name, ast::BuiltInType type, int offset = 0,
+                       bool is_func = false, std::vector<ast::BuiltInType> func_types = {}) :
+            name(std::move(name)), type(type) {}
         };
 
         struct SymbolTable{
             std::shared_ptr<SymbolTable> parent;
             bool is_loop_scope;
-            std::map<std::string, SymbolData> table;
+            std::map<std::string, std::shared_ptr<SymbolData>> table;
 
             SymbolTable(const std::shared_ptr<SymbolTable>& parent, bool is_loop_scope):
                 parent(parent), is_loop_scope(is_loop_scope) {}
 
-            void insert(const SymbolData& sym_data){
-                if (validate_existence(std::shared_ptr<SymbolTable>(this), sym_data.name) != nullptr){
+            void insert(const std::shared_ptr<SymbolData>& sym_data){
+                if (validate_existence(std::shared_ptr<SymbolTable>(this), sym_data->name) != nullptr){
                     // TODO: throw error! - try to add var and it exist
                 }
-                table[sym_data.name] = sym_data;
+                table[sym_data->name] = sym_data;
             }
 
             static std::shared_ptr<SymbolData> validate_existence(
-                    const std::shard_ptr<SymbolTable>& sym_tab, const std::string& id){
-                auto& lookup = sym_tab->table.find(id);
+                    const std::shared_ptr<SymbolTable>& sym_tab, const std::string& id){
+                auto lookup = sym_tab->table.find(id);
                 if (lookup != sym_tab->table.end())
-                    return std::shared_ptr<SymbolData>(*lookup);
+                    return lookup->second;
                 if (sym_tab->parent == nullptr)
                     return nullptr;
                 return validate_existence(sym_tab->parent, id);
@@ -100,26 +107,41 @@ namespace output {
 
         ScopePrinter scopePrinter;
 
-        std::stack<SymbolTable> table_stack;
+        std::stack<std::shared_ptr<SymbolTable>> table_stack;
         std::stack<int> offset_stack;
 
         void begin_scope(const std::shared_ptr<SymbolTable>& parent, bool is_loop_scope){
-            table_stack.push(SymbolTable(parent, is_loop_scope));
+            table_stack.push(std::make_shared<SymbolTable>(parent, is_loop_scope));
         }
 
         void end_scope(){
-            for (size_t i = 0; i < table_stack.top().table.size(); i++)
+            for (size_t i = 0; i < table_stack.top()->table.size(); i++)
                 offset_stack.pop();
-            table_stack.pop()
+            table_stack.pop();
         }
 
-        void insert(const SymbolData& sym_data, int num_args=0){
-            table_stack.top().insert(sym_data);
+        void insert(const std::shared_ptr<SymbolData>& sym_data, bool is_func = false,
+                    int num_args=0, std::vector<ast::BuiltInType> func_types = {}){
+            table_stack.top()->insert(sym_data);
 
-            if (offset_stack.empty())
-                offset_stack.push(-1 * num_args);
+            if (is_func) {   //TODO: not sure, a function doesn't have an offset
+                sym_data->is_func = true;
+                sym_data->func_types = std::move(func_types);
+            } else if (offset_stack.empty()) {
+                sym_data->offset = -1 * num_args;
+                offset_stack.push(sym_data->offset);
+            }
+            else {
+                sym_data->offset = offset_stack.top() + 1;
+                offset_stack.push(sym_data->offset);
+            }
+        }
+
+        std::shared_ptr<SymbolData> validate_existence_by_name(const std::string& id) {
+            if (table_stack.empty())
+                return nullptr;
             else
-                offset_stack.push(offset_stack.top() + 1);
+                 return SymbolTable::validate_existence(table_stack.top(), id);
         }
 
     public:
