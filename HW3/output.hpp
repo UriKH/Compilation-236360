@@ -83,9 +83,10 @@ namespace output {
             std::shared_ptr<SymbolTable> parent;
             bool is_loop_scope;
             std::map<std::string, std::shared_ptr<SymbolData>> table;
+            int vars_count; // Add a counter for variables only - to handle offset for funcs and vars
 
             SymbolTable(const std::shared_ptr<SymbolTable>& parent, bool is_loop_scope):
-                parent(parent), is_loop_scope(is_loop_scope) {}
+                parent(parent), is_loop_scope(is_loop_scope), vars_count(0) {}
 
             void insert(const std::shared_ptr<SymbolData>& sym_data){
                 if (validate_existence(std::shared_ptr<SymbolTable>(this), sym_data->name) != nullptr){
@@ -107,6 +108,8 @@ namespace output {
 
         ScopePrinter scopePrinter;
 
+        ast::BuiltInType last_type;
+
         std::stack<std::shared_ptr<SymbolTable>> table_stack;
         std::stack<int> offset_stack;
 
@@ -115,8 +118,11 @@ namespace output {
         }
 
         void end_scope(){
-            for (size_t i = 0; i < table_stack.top()->table.size(); i++)
+            int vars_to_pop = table_stack.top()->vars_count;
+
+            for (size_t i = 0; i < vars_to_pop; i++)
                 offset_stack.pop();
+
             table_stack.pop();
         }
 
@@ -127,13 +133,17 @@ namespace output {
             if (is_func) {   //TODO: not sure, a function doesn't have an offset
                 sym_data->is_func = true;
                 sym_data->func_types = std::move(func_types);
-            } else if (offset_stack.empty()) {
-                sym_data->offset = -1 * num_args;
-                offset_stack.push(sym_data->offset);
-            }
-            else {
-                sym_data->offset = offset_stack.top() + 1;
-                offset_stack.push(sym_data->offset);
+            } else {
+                table_stack.top()->vars_count++;
+
+                if (offset_stack.empty()) {
+                    sym_data->offset = -1 * num_args;
+                    offset_stack.push(sym_data->offset);
+                }
+                else {
+                    sym_data->offset = offset_stack.top() + 1;
+                    offset_stack.push(sym_data->offset);
+                }
             }
         }
 

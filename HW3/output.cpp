@@ -156,27 +156,77 @@ namespace output {
         if (data->is_func)
             errorDefAsFunc(node.line, node.value);
 
+        this->last_type = data->type;
     }
 
     void MyVisitor::visit(ast::If &node) {
-//        // Adding to scope stack
-//        if (table_stack.top() == nullptr)
-//
-//        else
-//            begin_scope(table_stack.top(), false);
-//
-//        node.condition->accept()
-//
-//        end_scope();
+        node.condition->accept(*this);
+        // Check if condition isn't bool
+        if (this->last_type != ast::BuiltInType::BOOL)
+            errorMismatch(node.line);
+
+        // Starting scope for then
+        //TODO: do we need to do check if (table_stack.top() == nullptr)?
+
+        // Adding to scope stack
+        begin_scope(table_stack.top(), false);
+        scopePrinter.beginScope();
+        node.then->accept(*this);
+
+        // Removing from scope stack
+        end_scope();
+        scopePrinter.endScope();
+
+
+        // Starting scope for else
+        // If there is an else and it is not null
+        if (node.otherwise) {
+            begin_scope(table_stack.top(), false);
+            scopePrinter.beginScope();
+
+            node.otherwise->accept(*this);
+
+            end_scope();
+            scopePrinter.endScope();
+        }
     }
 
-    void MyVisitor::visit(ast::Or &node) {}
+    void MyVisitor::visit(ast::Or &node) {
+        node.left->accept(*this);
+        if (this->last_type != ast::BuiltInType::BOOL) {
+            errorMismatch(node.line);
+        }
 
-    void MyVisitor::visit(ast::And &node) {}
+        node.right->accept(*this);
+        if (this->last_type != ast::BuiltInType::BOOL) {
+            errorMismatch(node.line);
+        }
+    }
 
-    void MyVisitor::visit(ast::Not &node) {}
+    void MyVisitor::visit(ast::And &node) {
+        node.left->accept(*this);
+        if (this->last_type != ast::BuiltInType::BOOL) {
+            errorMismatch(node.line);
+        }
 
-    void MyVisitor::visit(ast::Num &node) {}
+        node.right->accept(*this);
+        if (this->last_type != ast::BuiltInType::BOOL) {
+            errorMismatch(node.line);
+        }
+    }
+
+    void MyVisitor::visit(ast::Not &node) {
+        node.exp->accept(*this);
+
+        // TODO: Type of not is always boolean?
+        if (this->last_type != ast::BuiltInType::BOOL) {
+            errorMismatch(node.line);
+        }
+    }
+
+    void MyVisitor::visit(ast::Num &node) {
+        this->last_type = ast::BuiltInType::INT;
+    }
 
     void MyVisitor::visit(ast::Bool &node) {}
 
@@ -193,41 +243,94 @@ namespace output {
 
         // TODO: check func_types if matching
 
-        node.args->accept(*this);
+        node.func_id->accept(*this);
 
         node.args->accept(*this);
     }
 
     void MyVisitor::visit(ast::Cast &node) {}
 
-    void MyVisitor::visit(ast::NumB &node) {}
+    void MyVisitor::visit(ast::NumB &node) {
+        this->last_type = ast::BuiltInType::BYTE;
+    }
 
-    void MyVisitor::visit(ast::Type &node) {}
+    void MyVisitor::visit(ast::Type &node) {
+        this->last_type = node.type;
+    }
 
-    void MyVisitor::visit(ast::BinOp &node) {}
+    void MyVisitor::visit(ast::BinOp &node) {
+        ast::BuiltInType left, right;
 
-    void MyVisitor::visit(ast::Break &node) {}
+        node.left->accept(*this);
+        left = this->last_type;
+
+        node.right->accept(*this);
+        right = this->last_type;
+
+        bool isLeftNum = (left == ast::BuiltInType::INT || left == ast::BuiltInType::BYTE);
+        bool isRightNum = (right == ast::BuiltInType::INT || right == ast::BuiltInType::BYTE);
+
+        if (!isLeftNum || !isRightNum) {
+            errorMismatch(node.line);
+        }
+
+        // return type with bigger representation size
+        if (left == ast::BuiltInType::INT || right == ast::BuiltInType::INT)
+            this->last_type = ast::BuiltInType::INT;
+        else
+            this->last_type = ast::BuiltInType::BYTE;
+    }
+
+    void MyVisitor::visit(ast::Break &node) {
+        end_scope();
+        scopePrinter.endScope();
+    }
 
     void MyVisitor::visit(ast::Funcs &node) {}
 
     void MyVisitor::visit(ast::RelOp &node) {}
 
     void MyVisitor::visit(ast::While &node) {
+        node.condition->accept(*this);
+        // Check if condition isn't bool
+        if (this->last_type != ast::BuiltInType::BOOL)
+            errorMismatch(node.line);
 
+        //TODO: do we need to do check if (table_stack.top() == nullptr)?
+        begin_scope(table_stack.top(), false);
+        scopePrinter.beginScope();
+
+        node.body->accept(*this);
+
+        end_scope();
+        scopePrinter.endScope();
     }
 
-    void MyVisitor::visit(ast::Assign &node) {}
+    void MyVisitor::visit(ast::Assign &node) {
+        node.id->accept(*this);
+        ast::BuiltInType id_type = this->last_type;
+
+        node.exp->accept(*this);
+        ast::BuiltInType exp_type = this->last_type;
+
+        if (id_type != exp_type)
+            errorMismatch(node.line);
+    }
 
     void MyVisitor::visit(ast::Formal &node) {}
 
-    void MyVisitor::visit(ast::Return &node) {}
+    void MyVisitor::visit(ast::Return &node) {
+        // last type remains the same from exp
+        node.exp->accept(*this);
+
+        end_scope();
+        scopePrinter.endScope();
+    }
 
     void MyVisitor::visit(ast::String &node) {}
 
     // we have ExpList only for function calls
-    void MyVisitor::visit(ast::ExpList &node) {
-
-    }
+    void MyVisitor::visit(ast::ExpList &node) {}
 
     void MyVisitor::visit(ast::Formals &node) {}
 
@@ -235,20 +338,20 @@ namespace output {
 
         std::shared_ptr<SymbolData> data = validate_existence_by_name(node.id->value);
 
-        // Check if we already declared this id (name & type)
-        if (data != nullptr && data->type == node.type->type) {
+        // Check if we already declared this id (name)
+        // We can't do shadowing! - that's why we don't check type
+        if (data != nullptr)
             errorDef(node.line, node.id->value);
-        } else {
-            std::shared_ptr<SymbolData> new_data = std::make_shared<SymbolData>(node.id->value, node.type->type);
-            insert(new_data);
-        }
+
+        std::shared_ptr<SymbolData> new_data = std::make_shared<SymbolData>(node.id->value, node.type->type);
+        insert(new_data);
+
+        scopePrinter.emitVar(new_data->name, new_data->type, new_data->offset);
     }
 
     void MyVisitor::visit(ast::Continue &node) {}
 
-    void MyVisitor::visit(ast::FuncDecl &node) {
-
-    }
+    void MyVisitor::visit(ast::FuncDecl &node) {}
 
     void MyVisitor::visit(ast::Statements &node) {}
 }
