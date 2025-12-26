@@ -106,14 +106,16 @@ namespace output {
             }
         };
 
-        ScopePrinter scopePrinter;
+        ScopePrinter printer;
 
         ast::BuiltInType last_type;
+        std::string last_func_id;
 
         std::stack<std::shared_ptr<SymbolTable>> table_stack;
         std::stack<int> offset_stack;
 
         void begin_scope(const std::shared_ptr<SymbolTable>& parent, bool is_loop_scope){
+            printer.beginScope();
             table_stack.push(std::make_shared<SymbolTable>(parent, is_loop_scope));
         }
 
@@ -124,6 +126,7 @@ namespace output {
                 offset_stack.pop();
 
             table_stack.pop();
+            printer.endScope();
         }
 
         void insert(const std::shared_ptr<SymbolData>& sym_data, bool is_func = false,
@@ -133,7 +136,9 @@ namespace output {
             if (is_func) {   //TODO: not sure, a function doesn't have an offset
                 sym_data->is_func = true;
                 sym_data->func_types = std::move(func_types);
-            } else {
+                printer.emitFunc(sym_data->name, sym_data->type, sym_data->func_types);
+            }
+            else{
                 table_stack.top()->vars_count++;
 
                 if (offset_stack.empty()) {
@@ -144,14 +149,15 @@ namespace output {
                     sym_data->offset = offset_stack.top() + 1;
                     offset_stack.push(sym_data->offset);
                 }
+                printer.emitVar(sym_data->name, sym_data->type, sym_data->offset);
             }
         }
 
-        std::shared_ptr<SymbolData> validate_existence_by_name(const std::string& id) {
+        std::shared_ptr<SymbolData> check_exists_by_name(const std::string& id) {
             if (table_stack.empty())
                 return nullptr;
             else
-                 return SymbolTable::validate_existence(table_stack.top(), id);
+                return SymbolTable::validate_existence(table_stack.top(), id);
         }
 
     public:

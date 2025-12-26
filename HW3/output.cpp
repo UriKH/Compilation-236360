@@ -1,5 +1,6 @@
 #include "output.hpp"
 #include <iostream>
+#include <string>
 
 namespace output {
     /* Helper functions */
@@ -21,6 +22,10 @@ namespace output {
         }
     }
 
+    static bool is_numeric_type(ast::BuiltInType type) {
+        return type == ast::BuiltInType::INT || type == ast::BuiltInType::BYTE;
+    }
+    
     /* Error handling functions */
 
     void errorLex(int lineno) {
@@ -118,8 +123,7 @@ namespace output {
         indentLevel--;
     }
 
-    void ScopePrinter::emitVar(const std::string &id, const ast::BuiltInType &type, int offset) {
-        buffer << indent() << id << " " << toString(type) << " " << offset << std::endl;
+    void ScopePrinter::emitVar(const std::string &id, const ast::BuiltInType &type, int offset) { buffer << indent() << id << " " << toString(type) << " " << offset << std::endl;
     }
 
     void ScopePrinter::emitFunc(const std::string &id, const ast::BuiltInType &returnType,
@@ -143,10 +147,12 @@ namespace output {
         return os;
     }
 
-    MyVisitor::MyVisitor() {}
+    MyVisitor::MyVisitor() :
+        printer(ScopePrinter()), last_type(ast::BuiltInType::VOID), last_func_id(""), table_stack(), offset_stack(){
+    }
 
     void MyVisitor::visit(ast::ID &node) {
-        std::shared_ptr<SymbolData> data = validate_existence_by_name(node.value);
+        std::shared_ptr<SymbolData> data = check_exists_by_name(node.value);
 
         // Check if we tried to use identifier without him being declared.
         if (data == nullptr)
@@ -170,24 +176,17 @@ namespace output {
 
         // Adding to scope stack
         begin_scope(table_stack.top(), false);
-        scopePrinter.beginScope();
         node.then->accept(*this);
 
         // Removing from scope stack
         end_scope();
-        scopePrinter.endScope();
-
 
         // Starting scope for else
         // If there is an else and it is not null
         if (node.otherwise) {
             begin_scope(table_stack.top(), false);
-            scopePrinter.beginScope();
-
             node.otherwise->accept(*this);
-
             end_scope();
-            scopePrinter.endScope();
         }
     }
 
@@ -228,30 +227,90 @@ namespace output {
         this->last_type = ast::BuiltInType::INT;
     }
 
-    void MyVisitor::visit(ast::Bool &node) {}
-
-    void MyVisitor::visit(ast::Call &node) {
-        std::shared_ptr<SymbolData> func_data = validate_existence_by_name(node.func_id->value);
-
-        // Func isn't declared
-        if (func_data == nullptr)
-            errorUndefFunc(node.line, node.func_id->value);
-
-        // We try to use func but it's a var
-        if (!func_data->is_func)
-            errorDefAsVar(node.line, node.func_id->value);
-
-        // TODO: check func_types if matching
-
-        node.func_id->accept(*this);
-
-        node.args->accept(*this);
+    void MyVisitor::visit(ast::Bool& node){
+        this->last_type = ast::BuiltInType::BOOL;
     }
 
-    void MyVisitor::visit(ast::Cast &node) {}
+    void MyVisitor::visit(ast::Call& node){
+        // std::shared_ptr<SymbolData> func_data = check_exists_by_name(node.func_id->value);
 
-    void MyVisitor::visit(ast::NumB &node) {
-        this->last_type = ast::BuiltInType::BYTE;
+        // // Func isn't declared
+        // if (func_data == nullptr)
+        //     errorUndefFunc(node.line, node.func_id->value);
+
+        // // We try to use func but it's a var
+        // if (!func_data->is_func)
+        //     errorDefAsVar(node.line, node.func_id->value);
+
+        // // TODO: check func_types if matching
+
+        // node.func_id->accept(*this);
+        // node.args->accept(*this);
+        // if (last_type == ast::BuiltInType::STRING && node.func_id->value != "print"){
+        //     errorMismatch(node.line);
+        //     // TODO: this might not be correct if function has more than one arguments
+        // }
+        std::shared_ptr<SymbolData> func_data = check_exists_by_name(node.func_id->value);
+        if (func_data == nullptr) errorUndefFunc(node.line, node.func_id->value);
+        if (!func_data->is_func) errorDefAsVar(node.line, node.func_id->value);
+
+        // Check argument count
+        std::vector<std::shared_ptr<ast::Exp>>& args = node.args->exps;
+        std::vector<ast::BuiltInType>& expected_types = func_data->func_types;
+
+        if (args.size() != expected_types.size()){
+            std::vector<std::string> expected_str;
+            for (auto t : expected_types) expected_str.push_back(toString(t));
+            errorPrototypeMismatch(node.line, node.func_id->value, expected_str);
+        }
+
+        // Check argument types
+        for (size_t i = 0; i < args.size(); i++){
+            args[i]->accept(*this);
+            ast::BuiltInType arg_type = last_type;
+            ast::BuiltInType expected = expected_types[i];
+
+            bool typesMatch = (arg_type == expected);
+            // Special case: Allow Byte -> Int
+            if (expected == ast::BuiltInType::INT && arg_type == ast::BuiltInType::BYTE) typesMatch = true;
+
+            if (!typesMatch){
+                std::vector<std::string> expected_str;
+                for (auto t : expected_types) expected_str.push_back(toString(t));
+                errorPrototypeMismatch(node.line, node.func_id->value, expected_str);
+            }
+        }
+
+        // Set return type for the Call expression
+        this->last_type = func_data->type;
+    }
+
+    void MyVisitor::visit(ast::Cast& node){
+        node.exp->accept(*this);
+        ast::BuiltInType exp_type = last_type;
+
+        node.target_type->accept(*this);
+        ast::BuiltInType target_type = last_type;
+
+        if (exp_type == target_type) {
+            last_type = target_type;
+            return;
+        }
+        else if (!is_numeric_type(exp_type) || !is_numeric_type(target_type)){
+            errorMismatch(node.line);
+        }
+
+        if (target_type == ast::BuiltInType::BYTE){
+            // TODO: this might be wrong - might need to check that is less than 255
+        }
+        last_type = target_type;
+        return;
+    }
+
+    void MyVisitor::visit(ast::NumB& node){
+        last_type = ast::BuiltInType::BYTE;
+        if (node.value > 255)
+            errorByteTooLarge(node.line, node.value);
     }
 
     void MyVisitor::visit(ast::Type &node) {
@@ -281,14 +340,61 @@ namespace output {
             this->last_type = ast::BuiltInType::BYTE;
     }
 
-    void MyVisitor::visit(ast::Break &node) {
-        end_scope();
-        scopePrinter.endScope();
+    void MyVisitor::visit(ast::Break& node){
+        // Check if we are in a loop scope and throw error if not
+        std::shared_ptr<SymbolTable> current_table = table_stack.top();
+        while (current_table != nullptr && !current_table->is_loop_scope)
+            current_table = current_table->parent;
+        if (current_table == nullptr)
+            errorUnexpectedBreak(node.line);
+        return;
     }
 
-    void MyVisitor::visit(ast::Funcs &node) {}
+    void MyVisitor::visit(ast::Funcs& node){
+        begin_scope(nullptr, false);
+        insert(std::make_shared<SymbolData>("print", ast::BuiltInType::VOID), true, 1, { ast::BuiltInType::STRING });
+        insert(std::make_shared<SymbolData>("printi", ast::BuiltInType::VOID), true, 1, { ast::BuiltInType::INT });
 
-    void MyVisitor::visit(ast::RelOp &node) {}
+        bool found_main = false;
+        for (const auto& func : node.funcs){
+            last_func_id = func->id->value;
+            if (last_func_id == "main")
+                found_main = true;
+
+            std::vector<ast::BuiltInType> param_types;
+            for (const auto& formal : func->formals->formals)
+                param_types.push_back(formal->type->type);
+
+            insert(std::make_shared<SymbolData>(
+                last_func_id, func->return_type->type), true, func->formals->formals.size(), param_types
+            );
+        }
+        if (!found_main)
+            errorMainMissing();
+
+        for (const auto& func : node.funcs){
+            last_func_id = func->id->value;
+            func->accept(*this);
+        }
+
+        end_scope();
+    }
+
+    void MyVisitor::visit(ast::RelOp& node){
+        ast::BuiltInType left, right;
+
+        node.left->accept(*this);
+        left = last_type;
+
+        node.right->accept(*this);
+        right = last_type;
+
+        if (!is_numeric_type(left) || !is_numeric_type(right)) {
+            errorMismatch(node.line);
+        }
+
+        last_type = ast::BuiltInType::BOOL;
+    }
 
     void MyVisitor::visit(ast::While &node) {
         node.condition->accept(*this);
@@ -298,12 +404,10 @@ namespace output {
 
         //TODO: do we need to do check if (table_stack.top() == nullptr)?
         begin_scope(table_stack.top(), false);
-        scopePrinter.beginScope();
 
         node.body->accept(*this);
 
         end_scope();
-        scopePrinter.endScope();
     }
 
     void MyVisitor::visit(ast::Assign &node) {
@@ -317,26 +421,8 @@ namespace output {
             errorMismatch(node.line);
     }
 
-    void MyVisitor::visit(ast::Formal &node) {}
-
-    void MyVisitor::visit(ast::Return &node) {
-        // last type remains the same from exp
-        node.exp->accept(*this);
-
-        end_scope();
-        scopePrinter.endScope();
-    }
-
-    void MyVisitor::visit(ast::String &node) {}
-
-    // we have ExpList only for function calls
-    void MyVisitor::visit(ast::ExpList &node) {}
-
-    void MyVisitor::visit(ast::Formals &node) {}
-
-    void MyVisitor::visit(ast::VarDecl &node) {
-
-        std::shared_ptr<SymbolData> data = validate_existence_by_name(node.id->value);
+    void MyVisitor::visit(ast::Formal& node){
+        std::shared_ptr<SymbolData> data = check_exists_by_name(node.id->value);
 
         // Check if we already declared this id (name)
         // We can't do shadowing! - that's why we don't check type
@@ -345,13 +431,85 @@ namespace output {
 
         std::shared_ptr<SymbolData> new_data = std::make_shared<SymbolData>(node.id->value, node.type->type);
         insert(new_data);
-
-        scopePrinter.emitVar(new_data->name, new_data->type, new_data->offset);
     }
 
-    void MyVisitor::visit(ast::Continue &node) {}
+    void MyVisitor::visit(ast::Return &node) {
+        // last type remains the same from exp
+        node.exp->accept(*this);
 
-    void MyVisitor::visit(ast::FuncDecl &node) {}
+        end_scope();
+    }
 
-    void MyVisitor::visit(ast::Statements &node) {}
+    void MyVisitor::visit(ast::String& node){
+        last_type = ast::BuiltInType::STRING;
+    }
+
+    // we have ExpList only for function calls
+    void MyVisitor::visit(ast::ExpList& node){
+        auto& types = check_exists_by_name(last_func_id)->func_types;
+
+        std::vector<std::string> str_types;
+        for (const auto& t : types)
+            str_types.push_back(toString(t));
+
+        size_t i = 0;
+        for (; i < node.exps.size(); i++){
+            node.exps[i]->accept(*this);
+            if (i >= types.size() || types[i] != last_type || (types[i] == ast::BuiltInType::STRING && last_func_id != "print"))
+                errorPrototypeMismatch(node.line, last_func_id, str_types);
+        }
+        if (i < types.size())
+            errorPrototypeMismatch(node.line, last_func_id, str_types);
+    }
+
+    void MyVisitor::visit(ast::Formals& node){
+        for (const auto& formal : node.formals)
+            formal->accept(*this);
+    }
+
+    void MyVisitor::visit(ast::VarDecl &node) {
+        std::shared_ptr<SymbolData> data = check_exists_by_name(node.id->value);
+
+        // Check if we already declared this id (name)
+        // We can't do shadowing! - that's why we don't check type
+        if (data != nullptr)
+            errorDef(node.line, node.id->value);
+
+        std::shared_ptr<SymbolData> new_data = std::make_shared<SymbolData>(node.id->value, node.type->type);
+        insert(new_data);
+    }
+
+    void MyVisitor::visit(ast::Continue& node){
+        // Check if we are in a loop scope and throw error if not
+        std::shared_ptr<SymbolTable> current_table = table_stack.top();
+        while (current_table != nullptr && !current_table->is_loop_scope)
+            current_table = current_table->parent;
+        if (current_table == nullptr)
+            errorUnexpectedContinue(node.line);
+        return;
+    }
+
+    void MyVisitor::visit(ast::FuncDecl& node){
+        begin_scope(table_stack.top(), false);
+
+        if (check_exists_by_name(node.id->value) != nullptr)
+            errorDef(node.line, node.id->value);
+
+        node.formals->accept(*this);
+        node.body->accept(*this);
+        ast::BuiltInType body_return_type = last_type;
+
+        node.return_type->accept(*this);
+
+        // check correctness of return type
+        if (body_return_type != last_type)
+            errorMismatch(node.line);
+
+        end_scope();
+    }
+
+    void MyVisitor::visit(ast::Statements& node){
+        for (const auto& stmt : node.statements)
+            stmt->accept(*this);
+    }
 }
