@@ -10,7 +10,8 @@
 #include "visitor.hpp"
 #include "nodes.hpp"
 
-namespace output {
+
+namespace output{
     /* Error handling functions */
 
     void errorLex(int lineno);
@@ -89,9 +90,6 @@ namespace output {
                 parent(parent), is_loop_scope(is_loop_scope), vars_count(0) {}
 
             void insert(const std::shared_ptr<SymbolData>& sym_data){
-                if (validate_existence(std::shared_ptr<SymbolTable>(this), sym_data->name) != nullptr){
-                    // TODO: throw error! - try to add var and it exist
-                }
                 table[sym_data->name] = sym_data;
             }
 
@@ -113,6 +111,8 @@ namespace output {
 
         std::stack<std::shared_ptr<SymbolTable>> table_stack;
         std::stack<int> offset_stack;
+        int arg_offset = 0;
+        bool returns = false;
 
         void begin_scope(const std::shared_ptr<SymbolTable>& parent, bool is_loop_scope){
             printer.beginScope();
@@ -130,10 +130,10 @@ namespace output {
         }
 
         void insert(const std::shared_ptr<SymbolData>& sym_data, bool is_func = false,
-                    int num_args=0, std::vector<ast::BuiltInType> func_types = {}){
+            std::vector<ast::BuiltInType> func_types = {}, bool is_arg = false){
             table_stack.top()->insert(sym_data);
 
-            if (is_func) {   //TODO: not sure, a function doesn't have an offset
+            if (is_func){   //TODO: not sure, a function doesn't have an offset
                 sym_data->is_func = true;
                 sym_data->func_types = std::move(func_types);
                 printer.emitFunc(sym_data->name, sym_data->type, sym_data->func_types);
@@ -141,14 +141,9 @@ namespace output {
             else{
                 table_stack.top()->vars_count++;
 
-                if (offset_stack.empty()) {
-                    sym_data->offset = -1 * num_args;
-                    offset_stack.push(sym_data->offset);
-                }
-                else {
-                    sym_data->offset = offset_stack.top() + 1;
-                    offset_stack.push(sym_data->offset);
-                }
+                int offset = (is_arg) ? arg_offset : (offset_stack.empty() ? 0 : offset_stack.top() + 1);
+                sym_data->offset = offset;
+                offset_stack.push(offset);
                 printer.emitVar(sym_data->name, sym_data->type, sym_data->offset);
             }
         }
@@ -156,8 +151,7 @@ namespace output {
         std::shared_ptr<SymbolData> check_exists_by_name(const std::string& id) {
             if (table_stack.empty())
                 return nullptr;
-            else
-                return SymbolTable::validate_existence(table_stack.top(), id);
+            return SymbolTable::validate_existence(table_stack.top(), id);
         }
 
     public:
