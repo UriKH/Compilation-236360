@@ -113,6 +113,7 @@ namespace output{
         std::stack<int> offset_stack;
         int arg_offset = 0;
         bool returns = false;
+        ast::BuiltInType return_type;
 
         void begin_scope(const std::shared_ptr<SymbolTable>& parent, bool is_loop_scope){
             printer.beginScope();
@@ -141,7 +142,20 @@ namespace output{
             else{
                 table_stack.top()->vars_count++;
 
-                int offset = (is_arg) ? arg_offset : (offset_stack.empty() ? 0 : offset_stack.top() + 1);
+                int offset;
+                if (is_arg){
+                    offset = arg_offset;
+                }
+                else{
+                    if (offset_stack.empty())
+                        offset = 0;
+                    else{
+                        int top = offset_stack.top();
+                        offset = (top >= 0) ? top + 1 : 0;
+                    }
+                        
+                }
+                // int offset = (is_arg) ? arg_offset : (offset_stack.empty() ? 0 : offset_stack.top() + 1);
                 sym_data->offset = offset;
                 offset_stack.push(offset);
                 printer.emitVar(sym_data->name, sym_data->type, sym_data->offset);

@@ -260,7 +260,8 @@ namespace output {
 
             bool typesMatch = (arg_type == expected);
             // Special case: Allow Byte -> Int
-            if (expected == ast::BuiltInType::INT && arg_type == ast::BuiltInType::BYTE) typesMatch = true;
+            if (expected == ast::BuiltInType::INT && arg_type == ast::BuiltInType::BYTE)
+                typesMatch = true;
 
             if (!typesMatch){
                 std::vector<std::string> expected_str;
@@ -289,9 +290,6 @@ namespace output {
             errorMismatch(node.line);
         }
 
-        if (target_type == ast::BuiltInType::BYTE){
-            // TODO: this might be wrong - might need to check that is less than 255
-        }
         last_type = target_type;
     }
 
@@ -439,10 +437,14 @@ namespace output {
     void MyVisitor::visit(ast::Return &node) {
         // last type remains the same from exp
         returns = true;
+
         if (node.exp == nullptr)
             last_type = ast::BuiltInType::VOID;
         else
             node.exp->accept(*this);
+
+        if (return_type != last_type && !(last_type == ast::BuiltInType::BYTE && return_type == ast::BuiltInType::INT))
+            errorMismatch(node.line);
     }
 
     void MyVisitor::visit(ast::String& node){
@@ -474,6 +476,8 @@ namespace output {
             arg_offset--;
             formal->accept(*this);
         }
+
+        arg_offset = 0;
     }
 
     void MyVisitor::visit(ast::VarDecl &node) {
@@ -514,19 +518,11 @@ namespace output {
         begin_scope(table_stack.top(), false);
 
         returns = false;
-        node.formals->accept(*this);
-        node.body->accept(*this);
-        ast::BuiltInType body_return_type = last_type;
+        return_type = node.return_type->type;
 
         node.return_type->accept(*this);
-
-        // check correctness of return type
-        if (returns){
-            if (body_return_type != last_type)
-                errorMismatch(node.line);
-        }
-        else if (node.return_type->type != ast::BuiltInType::VOID)
-            errorMismatch(node.line);
+        node.formals->accept(*this);
+        node.body->accept(*this);
 
         end_scope();
     }

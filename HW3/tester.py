@@ -6,7 +6,7 @@ import difflib
 
 # --- CONFIGURATION ---
 EXECUTABLE = "./hw3"   # Name of your compiled program
-TEST_DIR = "./dani_tests"         # Directory containing the .in/.out files
+TEST_DIR = "./sorani_tests"         # Directory containing the .in/.out files
 # ---------------------
 
 def normalize_output(text):
