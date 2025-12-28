@@ -1,6 +1,8 @@
 #include "output.hpp"
 #include <iostream>
 #include <string>
+#include <cctype>
+
 
 namespace output {
     /* Helper functions */
@@ -25,7 +27,13 @@ namespace output {
     static bool is_numeric_type(ast::BuiltInType type) {
         return type == ast::BuiltInType::INT || type == ast::BuiltInType::BYTE;
     }
-    
+
+    static std::string toupper(std::string str){
+        for (char& c : str){
+            c = std::toupper(static_cast<unsigned char>(c));
+        }
+        return str;
+    }
     /* Error handling functions */
 
     void errorLex(int lineno) {
@@ -166,29 +174,24 @@ namespace output {
     }
 
     void MyVisitor::visit(ast::If& node){
-        // begin_scope(table_stack.top(), false);
+        begin_scope(table_stack.top(), false);
         
         node.condition->accept(*this);
         // Check if condition isn't bool
         if (this->last_type != ast::BuiltInType::BOOL)
             errorMismatch(node.condition->line);
 
-        // Starting scope for then
-        //TODO: do we need to do check if (table_stack.top() == nullptr)?
-
-        // Adding to scope stack
-        begin_scope(table_stack.top(), false);
         node.then->accept(*this);
-
         // Removing from scope stack
         end_scope();
 
-        // end_scope();
         // Starting scope for else
         // If there is an else and it is not null
         if (node.otherwise){
             begin_scope(table_stack.top(), false);
+            is_func_body = true;
             node.otherwise->accept(*this);
+            is_func_body = false;
             end_scope();
         }
     }
@@ -248,7 +251,7 @@ namespace output {
         if (args.size() != expected_types.size()){
             std::vector<std::string> expected_str;
             for (auto t : expected_types)
-                expected_str.push_back(toString(t));
+                expected_str.push_back(toupper(toString(t)));
             errorPrototypeMismatch(node.line, node.func_id->value, expected_str);
         }
 
@@ -266,7 +269,7 @@ namespace output {
             if (!typesMatch){
                 std::vector<std::string> expected_str;
                 for (auto t : expected_types)
-                    expected_str.push_back(toString(t));
+                    expected_str.push_back(toupper(toString(t)));
                 errorPrototypeMismatch(node.line, node.func_id->value, expected_str);
             }
         }
@@ -395,8 +398,9 @@ namespace output {
 
         //TODO: do we need to do check if (table_stack.top() == nullptr)?
         begin_scope(table_stack.top(), true);
-
+        is_func_body = true;
         node.body->accept(*this);
+        is_func_body = false;
 
         end_scope();
         end_scope();
@@ -452,7 +456,7 @@ namespace output {
 
         std::vector<std::string> str_types;
         for (const auto& t : types)
-            str_types.push_back(toString(t));
+            str_types.push_back(toupper(toString(t)));
 
         size_t i = 0;
         for (; i < node.exps.size(); i++){
@@ -513,7 +517,8 @@ namespace output {
         begin_scope(table_stack.top(), false);
 
         returns = false;
-        
+        is_func_body = true;
+
         return_type = node.return_type->type;
 
         node.return_type->accept(*this);
@@ -524,11 +529,16 @@ namespace output {
     }
 
     void MyVisitor::visit(ast::Statements& node){
-        begin_scope(table_stack.top(), false);
+        bool clean = !is_func_body;
 
+        if (clean)
+            begin_scope(table_stack.top(), false);
+
+        is_func_body = false;
         for (const auto& stmt : node.statements)
             stmt->accept(*this);
-        
-        end_scope();
+
+        if (clean)
+            end_scope();
     }
 }

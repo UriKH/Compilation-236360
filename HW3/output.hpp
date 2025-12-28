@@ -113,6 +113,7 @@ namespace output{
         std::stack<int> offset_stack;
         int arg_offset = 0;
         bool returns = false;
+        bool is_func_body = false;
         ast::BuiltInType return_type;
 
         void begin_scope(const std::shared_ptr<SymbolTable>& parent, bool is_loop_scope){
