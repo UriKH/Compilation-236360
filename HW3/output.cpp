@@ -166,7 +166,7 @@ namespace output {
     }
 
     void MyVisitor::visit(ast::If& node){
-        begin_scope(table_stack.top(), false);
+        // begin_scope(table_stack.top(), false);
         
         node.condition->accept(*this);
         // Check if condition isn't bool
@@ -183,7 +183,7 @@ namespace output {
         // Removing from scope stack
         end_scope();
 
-        end_scope();
+        // end_scope();
         // Starting scope for else
         // If there is an else and it is not null
         if (node.otherwise){
@@ -282,14 +282,9 @@ namespace output {
         node.target_type->accept(*this);
         ast::BuiltInType target_type = last_type;
 
-        if (exp_type == target_type) {
-            last_type = target_type;
-            return;
-        }
-        else if (!is_numeric_type(exp_type) || !is_numeric_type(target_type)){
+        if (!is_numeric_type(exp_type) || !is_numeric_type(target_type))
             errorMismatch(node.line);
-        }
-
+        
         last_type = target_type;
     }
 
@@ -351,7 +346,7 @@ namespace output {
                 param_types.push_back(formal->type->type);
 
             if (check_exists_by_name(func->id->value) != nullptr)
-                errorDef(func->line, func->id->value);
+                errorDef(func->id->line, func->id->value);
             
             insert(std::make_shared<SymbolData>(
                 last_func_id, func->return_type->type), true, param_types
@@ -391,7 +386,7 @@ namespace output {
     }
 
     void MyVisitor::visit(ast::While& node){
-        begin_scope(table_stack.top(), true);
+        begin_scope(table_stack.top(), false);
 
         node.condition->accept(*this);
         // Check if condition isn't bool
@@ -399,7 +394,7 @@ namespace output {
             errorMismatch(node.condition->line);
 
         //TODO: do we need to do check if (table_stack.top() == nullptr)?
-        begin_scope(table_stack.top(), false);
+        begin_scope(table_stack.top(), true);
 
         node.body->accept(*this);
 
@@ -518,6 +513,7 @@ namespace output {
         begin_scope(table_stack.top(), false);
 
         returns = false;
+        
         return_type = node.return_type->type;
 
         node.return_type->accept(*this);
@@ -528,7 +524,11 @@ namespace output {
     }
 
     void MyVisitor::visit(ast::Statements& node){
+        begin_scope(table_stack.top(), false);
+
         for (const auto& stmt : node.statements)
             stmt->accept(*this);
+        
+        end_scope();
     }
 }
