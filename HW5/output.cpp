@@ -227,6 +227,12 @@ namespace output {
             errorDefAsFunc(node.line, node.value);
 
         this->last_type = data->type;
+
+        // Code buffer
+        node.var_name = this->code_buffer.freshVar();
+        code_buffer << "store" << node.var_name << ", " << node.value;
+
+        code_buffer << node.var_name + " := " + node.value;
     }
 
     void MyVisitor::visit(ast::If& node){
