@@ -1,6 +1,12 @@
 #include "output.hpp"
 #include <iostream>
 
+#define I32 std::string(" i32")
+#define I32ptr std::string(" i32*")
+#define I8 std::string(" i8")
+#define I8ptr std::string(" i8*")
+
+
 namespace output {
     /* Helper functions */
 
@@ -210,12 +216,6 @@ namespace output {
             errorDefAsFunc(node.line, node.value);
 
         this->last_type = data->type;
-
-        // Code buffer
-        node.var_name = this->code_buffer.freshVar();
-        code_buffer << "store" << node.var_name << ", " << node.value;
-
-        code_buffer << node.var_name + " := " + node.value;
     }
 
     void MyVisitor::visit(ast::If& node){
@@ -464,6 +464,25 @@ namespace output {
                 errorMismatch(node.line);
             }
         }
+
+        if (node.exp != nullptr){
+            auto temp_ptr = std::dynamic_pointer_cast<ast::Num>(node.exp);
+            if (temp_ptr != nullptr){
+                code_buffer.emit("store" + I32 + " " + std::to_string(temp_ptr->value) + "," + I32ptr + " " + node.id->var_name);
+                return;
+            }
+            auto temp_ptr2 = std::dynamic_pointer_cast<ast::Bool>(node.exp);
+            auto temp_ptr3 = std::dynamic_pointer_cast<ast::NumB>(node.exp);
+            if (temp_ptr2 != nullptr){
+                code_buffer.emit(node.id->var_name + " = zext" + I8 + " " + std::to_string(temp_ptr2->value) + " to" + I32);
+            }
+            else if (temp_ptr3 != nullptr){
+                code_buffer.emit(node.id->var_name + " = zext" + I8 + " " + std::to_string(temp_ptr3->value) + " to" + I32);
+            }
+            else {
+                code_buffer.emit("store" + I32 + " " + node.exp->var_name + "," + I32ptr + " " + node.id->var_name);
+            }
+        }
     }
 
     void MyVisitor::visit(ast::Formal& node){
@@ -546,6 +565,27 @@ namespace output {
 
         std::shared_ptr<SymbolData> new_data = std::make_shared<SymbolData>(node.id->value, node.type->type);
         insert(new_data);
+
+        node.id->var_name = this->code_buffer.freshVar();
+        code_buffer.emit(node.id->var_name + " = alloca" + I32);
+        if (node.init_exp != nullptr){
+            std::shared_ptr<ast::Num> temp_ptr = std::dynamic_pointer_cast<ast::Num>(node.init_exp);
+            if (temp_ptr != nullptr){
+                code_buffer.emit("store" + I32 + " " + std::to_string(temp_ptr->value) + "," + I32ptr + " " + node.id->var_name);
+                return;
+            }
+            auto temp_ptr2 = std::dynamic_pointer_cast<ast::Bool>(node.init_exp);
+            auto temp_ptr3 = std::dynamic_pointer_cast<ast::NumB>(node.init_exp);
+            if (temp_ptr2 != nullptr){
+                code_buffer.emit(node.id->var_name + " = zext" + I8 + " " + std::to_string(temp_ptr2->value) + " to" + I32);
+            }
+            else if (temp_ptr3 != nullptr){
+                code_buffer.emit(node.id->var_name + " = zext" + I8 + " " + std::to_string(temp_ptr3->value) + " to" + I32);
+            }
+            else {
+                code_buffer.emit("store" + I32 + " " + node.init_exp->var_name + "," + I32ptr + " " + node.id->var_name);
+            }
+        }
     }
 
     void MyVisitor::visit(ast::Continue& node){

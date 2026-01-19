@@ -41,6 +41,8 @@ namespace ast {
         // Line number in the source code
         int line;
 
+        std::string var_name;
+
         // Use this constructor only while parsing in bison or flex
         Node();
 
