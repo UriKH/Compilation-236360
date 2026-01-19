@@ -138,23 +138,6 @@ namespace output {
 
     /* Helper functions */
 
-    static std::string toString(ast::BuiltInType type){
-        switch (type){
-        case ast::BuiltInType::INT:
-            return "int";
-        case ast::BuiltInType::BOOL:
-            return "bool";
-        case ast::BuiltInType::BYTE:
-            return "byte";
-        case ast::BuiltInType::VOID:
-            return "void";
-        case ast::BuiltInType::STRING:
-            return "string";
-        default:
-            return "unknown";
-        }
-    }
-
     static bool is_numeric_type(ast::BuiltInType type){
         return type == ast::BuiltInType::INT || type == ast::BuiltInType::BYTE;
     }

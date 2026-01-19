@@ -8,6 +8,7 @@
 #include <map>
 #include <sstream>
 #include <stack>
+#include <iostream>
 
 namespace output{
     /* Error handling functions */
@@ -161,6 +162,7 @@ namespace output{
         };
 
         ScopePrinter printer;
+        CodeBuffer code_buffer;
 
         ast::BuiltInType last_type;
         std::string last_func_id;
@@ -228,6 +230,10 @@ namespace output{
     public:
         MyVisitor();
 
+        void print_buf(){
+            std::cout << code_buffer;
+        }
+        
         void visit(ast::Num& node) override;
 
         void visit(ast::NumB& node) override;
