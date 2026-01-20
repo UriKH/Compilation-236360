@@ -131,9 +131,10 @@ namespace output{
             int offset;
             bool is_func;
             std::vector<ast::BuiltInType> func_types;
+            std::string llvm_var;
 
             SymbolData(std::string name, ast::BuiltInType type, int offset = 0,
-                bool is_func = false, std::vector<ast::BuiltInType> func_types = {}) :
+                bool is_func = false, std::vector<ast::BuiltInType> func_types = {}, std::string llvm_var = "") :
                 name(std::move(name)), type(type){}
         };
 
@@ -141,6 +142,7 @@ namespace output{
             std::shared_ptr<SymbolTable> parent;
             bool is_loop_scope;
             std::string end_label;
+            std::string loop_label;
 
             std::map<std::string, std::shared_ptr<SymbolData>> table;
             int vars_count; // Add a counter for variables only - to handle offset for funcs and vars

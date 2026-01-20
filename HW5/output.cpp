@@ -217,7 +217,11 @@ namespace output {
 
         this->last_type = data->type;
 
-        node.var_name = node.value;
+        // Load data from memory (from stack)
+        std::string loaded_var = code_buffer.freshVar();
+        code_buffer.emit(loaded_var + " = load" + I32 + "," + I32ptr + " " + data->llvm_var);
+
+        node.var_name = loaded_var;
     }
 
     void MyVisitor::visit(ast::If& node){
@@ -329,29 +333,44 @@ namespace output {
             errorPrototypeMismatch(node.line, node.func_id->value, expected_str);
         }
 
+        // To later call func with args
+        std::string args_str = "";
+
         // Check argument types
         for (size_t i = 0; i < args.size(); i++){
             args[i]->accept(*this);
             ast::BuiltInType arg_type = last_type;
             ast::BuiltInType expected = expected_types[i];
 
+            // Check types
             bool typesMatch = (arg_type == expected);
             // Special case: Allow Byte -> Int
             if (expected == ast::BuiltInType::INT && arg_type == ast::BuiltInType::BYTE)
                 typesMatch = true;
-
             if (!typesMatch){
                 std::vector<std::string> expected_str;
                 for (auto t : expected_types)
                     expected_str.push_back(toupper(toString(t)));
                 errorPrototypeMismatch(node.line, node.func_id->value, expected_str);
             }
+
+            // Code buffer emit for args
+            if (i > 0) args_str += ", ";    // add comma between args
+
+            // TODO: if bool, do we need to do zext?
+            args_str += I32 + " " + args[i]->var_name;
         }
 
         // Set return type for the Call expression
         this->last_type = func_data->type;
 
-
+        if (func_data->type != ast::BuiltInType::VOID){
+            node.var_name = this->code_buffer.freshVar();
+            code_buffer.emit(node.var_name + " = call" + I32 + " @" + node.func_id->value + "(" + args_str + ")");
+        }
+        else{ //calling function that returns void
+            code_buffer.emit("call void @" + node.func_id->value + "(" + args_str + ")");
+        } // ToDO: check if parameter is String, if so, change I32 to I8ptr?
     }
 
     void MyVisitor::visit(ast::Cast& node){
@@ -365,6 +384,16 @@ namespace output {
             errorMismatch(node.line);
 
         last_type = target_type;
+
+        // code buffer emit
+        node.var_name = this->code_buffer.freshVar();
+        if (exp_type == ast::BuiltInType::INT && target_type == ast::BuiltInType::BYTE) {
+            // int to byte - truncation
+            code_buffer.emit(node.var_name + " = and" + I32 + " " + node.exp->var_name + ", 255");
+        } 
+        else { // Creating new var with same value for casting
+            code_buffer.emit(node.var_name + " = add" + I32 + " " + node.exp->var_name + ", 0");
+        }
     }
 
     void MyVisitor::visit(ast::NumB& node){
@@ -408,7 +437,7 @@ namespace output {
 
         node.var_name = this->code_buffer.freshVar();
 
-        //TODO: check if there is div by zero
+        // TODO: truncation for byte operations?
         if (node.op == ast::BinOpType::DIV) {
             code_buffer.emit("\n; >>> check division by zero");
             std::string label_true = this->code_buffer.freshLabel();
@@ -458,9 +487,10 @@ namespace output {
         while (current_table != nullptr && !current_table->is_loop_scope) {
             current_table = current_table->parent;
         }
-        code_buffer.emit("br label " + current_table->end_label);
         if (current_table == nullptr)
             errorUnexpectedBreak(node.line);
+
+        code_buffer.emit("br label " + current_table->end_label);
         return;
     }
 
@@ -552,6 +582,7 @@ namespace output {
             errorMismatch(node.condition->line);
 
         std::string while_label = code_buffer.freshLabel();
+        std::string cond_label = code_buffer.freshLabel();
         std::string final_label = code_buffer.freshLabel();
 
         code_buffer.emit("\n; >>> while block");
@@ -559,12 +590,18 @@ namespace output {
 
         begin_scope(table_stack.top(), true);
 
+        // Saving for break and continue
         table_stack.top()->end_label = final_label;
+        table_stack.top()->loop_label = cond_label;
+
         code_buffer.emitLabel(while_label);
 
         is_func_body = true;
 
         node.body->accept(*this);
+
+        // Doing condition check again
+        code_buffer.emitLabel(cond_label);
         code_buffer.emit("br i1 " + node.condition->var_name + ", label " + while_label + ", label " + final_label);
         is_func_body = false;
 
@@ -595,26 +632,7 @@ namespace output {
             }
             else {
                 code_buffer.emit("store" + I32 + " " + node.exp->var_name + "," + I32ptr + " " + node.id->var_name);
-
             }
-
-
-            // auto temp_ptr = std::dynamic_pointer_cast<ast::Num>(node.exp);
-            // if (temp_ptr != nullptr){
-            //     code_buffer.emit("store" + I32 + " " + std::to_string(temp_ptr->value) + "," + I32ptr + " " + node.id->var_name);
-            //     return;
-            // }
-            // auto temp_ptr2 = std::dynamic_pointer_cast<ast::Bool>(node.exp);
-            // auto temp_ptr3 = std::dynamic_pointer_cast<ast::NumB>(node.exp);
-            // if (temp_ptr2 != nullptr){
-            //     code_buffer.emit(node.id->var_name + " = zext" + I8 + " " + std::to_string(temp_ptr2->value) + " to" + I32);
-            // }
-            // else if (temp_ptr3 != nullptr){
-            //     code_buffer.emit(node.id->var_name + " = zext" + I8 + " " + std::to_string(temp_ptr3->value) + " to" + I32);
-            // }
-            // else {
-            //     code_buffer.emit("store" + I32 + " " + node.exp->var_name + "," + I32ptr + " " + node.id->var_name);
-            // }
         }
     }
 
@@ -641,10 +659,24 @@ namespace output {
 
         if (return_type != last_type && !(last_type == ast::BuiltInType::BYTE && return_type == ast::BuiltInType::INT))
             errorMismatch(node.line);
+
+        if (last_type == ast::BuiltInType::VOID)
+            code_buffer.emit("ret void");
+        else
+            code_buffer.emit("ret" + I32 + " " + node.exp->var_name);
+        
     }
 
     void MyVisitor::visit(ast::String& node){
         last_type = ast::BuiltInType::STRING;
+
+        // code buffer addings - Assuming no \n \t \\ \" etc. !!!
+        std::string str = code_buffer.emitString(node.value);
+        int len = node.value.length() + 1;
+
+        node.var_name = code_buffer.freshVar();
+        //TODO: not sure about i8 - maybe need i32
+        code_buffer.emit(node.var_name + " = getelementptr [" + std::to_string(len) + " x i8], [" + std::to_string(len) + " x i8]* " + str + ", i32 0, i32 0)");
     }
 
     // we have ExpList only for function calls
@@ -696,11 +728,15 @@ namespace output {
             }
         }
 
-        std::shared_ptr<SymbolData> new_data = std::make_shared<SymbolData>(node.id->value, node.type->type);
-        insert(new_data);
-
         node.id->var_name = this->code_buffer.freshVar();
         code_buffer.emit(node.id->var_name + " = alloca" + I32);
+
+        std::shared_ptr<SymbolData> new_data = std::make_shared<SymbolData>(node.id->value, node.type->type);
+        // Saving variable's llvm name
+        new_data->llvm_var = node.id->var_name;
+        insert(new_data);
+
+
         if (node.init_exp != nullptr){
             // std::shared_ptr<ast::Num> temp_ptr = std::dynamic_pointer_cast<ast::Num>(node.init_exp);
             // if (temp_ptr != nullptr){
@@ -738,6 +774,8 @@ namespace output {
             current_table = current_table->parent;
         if (current_table == nullptr)
             errorUnexpectedContinue(node.line);
+
+        code_buffer.emit("br label " + current_table->loop_label);
         return;
     }
 
