@@ -116,7 +116,7 @@ namespace output {
 
     std::string CodeBuffer::emitString(const std::string &str) {
         std::string var = "@.str" + std::to_string(stringCount++);
-        globalsBuffer << var << " = constant [" << str.length() + 1 << " x i8] c\"" << str << "\\00\"";
+        globalsBuffer << var << " = constant [" << str.length() + 1 << " x i8] c\"" << str << "\\00\"\n";
         return var;
     }
 
@@ -202,7 +202,7 @@ namespace output {
     }
 
     MyVisitor::MyVisitor() :
-        printer(ScopePrinter()), last_type(ast::BuiltInType::VOID), last_func_id(""), table_stack(), offset_stack(){}
+        printer(ScopePrinter()), last_type(ast::BuiltInType::VOID), last_func_id(""), table_stack(), offset_stack(), zero_div_error_var_name(){}
 
     void MyVisitor::visit(ast::ID& node){
         std::shared_ptr<SymbolData> data = check_exists_by_name(node.value);
@@ -216,28 +216,44 @@ namespace output {
             errorDefAsFunc(node.line, node.value);
 
         this->last_type = data->type;
+
+        node.var_name = node.value;
     }
 
     void MyVisitor::visit(ast::If& node){
         begin_scope(table_stack.top(), false);
 
         node.condition->accept(*this);
+        std::string if_label = code_buffer.freshLabel();
+        std::string else_label = code_buffer.freshLabel();
+
         // Check if condition isn't bool
         if (this->last_type != ast::BuiltInType::BOOL)
             errorMismatch(node.condition->line);
-
+        
+        code_buffer.emit("\n; >>> if block");
+        code_buffer.emit("br i1 " + node.condition->var_name + ", label " + if_label + ", label " + else_label);
+        code_buffer.emitLabel(if_label);
         node.then->accept(*this);
         // Removing from scope stack
         end_scope();
 
         // Starting scope for else
         // If there is an else and it is not null
+        if (!node.otherwise){
+            code_buffer.emitLabel(else_label);
+        }
         if (node.otherwise){
+            std::string end_label = code_buffer.freshLabel();
+            code_buffer.emit("br label " + end_label);
+            code_buffer.emitLabel(else_label);
+            code_buffer.emit("; >>> else block");
             begin_scope(table_stack.top(), false);
             is_func_body = true;
             node.otherwise->accept(*this);
             is_func_body = false;
             end_scope();
+            code_buffer.emitLabel(end_label);
         }
     }
 
@@ -251,6 +267,9 @@ namespace output {
         if (this->last_type != ast::BuiltInType::BOOL){
             errorMismatch(node.line);
         }
+        
+        node.var_name = this->code_buffer.freshVar();
+        code_buffer.emit(node.var_name + " = or" + I32 + " " + node.left->var_name + ", " + node.right->var_name);
     }
 
     void MyVisitor::visit(ast::And& node){
@@ -263,6 +282,9 @@ namespace output {
         if (this->last_type != ast::BuiltInType::BOOL){
             errorMismatch(node.line);
         }
+
+        node.var_name = this->code_buffer.freshVar();
+        code_buffer.emit(node.var_name + " = and" + I32 + " " + node.left->var_name + ", " + node.right->var_name);
     }
 
     void MyVisitor::visit(ast::Not& node){
@@ -272,14 +294,21 @@ namespace output {
         if (this->last_type != ast::BuiltInType::BOOL){
             errorMismatch(node.line);
         }
+
+        node.var_name = this->code_buffer.freshVar();
+        code_buffer.emit(node.var_name + " = xor" + I32 + " " + node.exp->var_name + ", 1");
     }
 
     void MyVisitor::visit(ast::Num& node){
         this->last_type = ast::BuiltInType::INT;
+
+        node.var_name = std::to_string(node.value);
     }
 
     void MyVisitor::visit(ast::Bool& node){
         this->last_type = ast::BuiltInType::BOOL;
+
+        node.var_name = std::to_string(node.value);
     }
 
     void MyVisitor::visit(ast::Call& node){
@@ -321,6 +350,8 @@ namespace output {
 
         // Set return type for the Call expression
         this->last_type = func_data->type;
+
+
     }
 
     void MyVisitor::visit(ast::Cast& node){
@@ -340,6 +371,8 @@ namespace output {
         last_type = ast::BuiltInType::BYTE;
         if (node.value > 255)
             errorByteTooLarge(node.line, node.value);
+
+        node.var_name = std::to_string(node.value);
     }
 
     void MyVisitor::visit(ast::Type& node){
@@ -367,6 +400,56 @@ namespace output {
             this->last_type = ast::BuiltInType::INT;
         else
             this->last_type = ast::BuiltInType::BYTE;
+
+        
+
+        // code buffer emit
+        bool isIntOperation = (this->last_type == ast::BuiltInType::INT);
+
+        node.var_name = this->code_buffer.freshVar();
+
+        //TODO: check if there is div by zero
+        if (node.op == ast::BinOpType::DIV) {
+            code_buffer.emit("\n; >>> check division by zero");
+            std::string label_true = this->code_buffer.freshLabel();
+            std::string label_false = this->code_buffer.freshLabel();
+
+            code_buffer.emit(node.var_name + " = icmp eq" + I32 + " " + node.right->var_name + ", 0");
+            code_buffer.emit("br i1 " + node.var_name + ", label %" + label_true + ", label %" + label_false);
+
+            code_buffer.emitLabel(label_true);
+            
+            std::string err_msg = "Error division by zero";
+            std::string len = std::to_string(err_msg.size() + 1);
+            if (zero_div_error_var_name.empty()) {
+                zero_div_error_var_name = code_buffer.emitString(err_msg);
+            }
+            
+            code_buffer << "call" + I32 + "(i8*, ...) @print(i8 *getelementptr inbounds ([" + len + " x i8], [" + len + " x i8]* " + zero_div_error_var_name + ", i32 0, i32 0))\n";
+            
+            code_buffer.emitLabel(label_false);
+            code_buffer.emit("; >>> end check division by zero\n");
+        }
+
+        switch (node.op) {
+            case (ast::BinOpType::ADD):
+                code_buffer.emit(node.var_name + " = add" + I32 + " " + node.left->var_name + ", " + node.right->var_name);
+                break;
+            case (ast::BinOpType::SUB):
+                code_buffer.emit(node.var_name + " = sub" + I32 + " " + node.left->var_name + ", " + node.right->var_name);
+                break;
+            case (ast::BinOpType::MUL):
+                code_buffer.emit(node.var_name + " = mul" + I32 + " " + node.left->var_name + ", " + node.right->var_name);
+                break;
+            case (ast::BinOpType::DIV): //TODO: check
+                if (isIntOperation) {
+                    code_buffer.emit(node.var_name + " = sdiv i32 " + node.left->var_name + ", " + node.right->var_name);
+                } else {
+                    code_buffer.emit(node.var_name + " = udiv i32 " + node.left->var_name + ", " + node.right->var_name);
+                }
+                break;
+                //TODO: sdiv
+        }
     }
 
     void MyVisitor::visit(ast::Break& node){
@@ -431,6 +514,31 @@ namespace output {
         }
 
         last_type = ast::BuiltInType::BOOL;
+
+
+        // code buffer emit
+        node.var_name = this->code_buffer.freshVar();
+
+        switch (node.op) {
+            case (ast::RelOpType::EQ):
+                code_buffer.emit(node.var_name + " = icmp eq" + I32 + " " + node.left->var_name + ", " + node.right->var_name);
+                break;
+            case (ast::RelOpType::NE):
+                code_buffer.emit(node.var_name + " = icmp ne" + I32 + " " + node.left->var_name + ", " + node.right->var_name);
+                break;
+            case (ast::RelOpType::LT):
+                code_buffer.emit(node.var_name + " = icmp slt" + I32 + " " + node.left->var_name + ", " + node.right->var_name);
+                break;
+            case (ast::RelOpType::GT):
+                code_buffer.emit(node.var_name + " = icmp sgt" + I32 + " " + node.left->var_name + ", " + node.right->var_name);
+                break;
+            case (ast::RelOpType::LE):
+                code_buffer.emit(node.var_name + " = icmp sle" + I32 + " " + node.left->var_name + ", " + node.right->var_name);
+                break;
+            case (ast::RelOpType::GE):
+                code_buffer.emit(node.var_name + " = icmp sge" + I32 + " " + node.left->var_name + ", " + node.right->var_name);
+                break;
+        }
     }
 
     void MyVisitor::visit(ast::While& node){
@@ -466,22 +574,32 @@ namespace output {
         }
 
         if (node.exp != nullptr){
-            auto temp_ptr = std::dynamic_pointer_cast<ast::Num>(node.exp);
-            if (temp_ptr != nullptr){
-                code_buffer.emit("store" + I32 + " " + std::to_string(temp_ptr->value) + "," + I32ptr + " " + node.id->var_name);
-                return;
-            }
-            auto temp_ptr2 = std::dynamic_pointer_cast<ast::Bool>(node.exp);
-            auto temp_ptr3 = std::dynamic_pointer_cast<ast::NumB>(node.exp);
-            if (temp_ptr2 != nullptr){
-                code_buffer.emit(node.id->var_name + " = zext" + I8 + " " + std::to_string(temp_ptr2->value) + " to" + I32);
-            }
-            else if (temp_ptr3 != nullptr){
-                code_buffer.emit(node.id->var_name + " = zext" + I8 + " " + std::to_string(temp_ptr3->value) + " to" + I32);
+            if (std::dynamic_pointer_cast<ast::Bool>(node.exp) != nullptr ||
+                std::dynamic_pointer_cast<ast::NumB>(node.exp) != nullptr){
+                code_buffer.emit(node.id->var_name + " = zext" + I8 + " " + node.exp->var_name + " to" + I32);
             }
             else {
                 code_buffer.emit("store" + I32 + " " + node.exp->var_name + "," + I32ptr + " " + node.id->var_name);
+
             }
+
+
+            // auto temp_ptr = std::dynamic_pointer_cast<ast::Num>(node.exp);
+            // if (temp_ptr != nullptr){
+            //     code_buffer.emit("store" + I32 + " " + std::to_string(temp_ptr->value) + "," + I32ptr + " " + node.id->var_name);
+            //     return;
+            // }
+            // auto temp_ptr2 = std::dynamic_pointer_cast<ast::Bool>(node.exp);
+            // auto temp_ptr3 = std::dynamic_pointer_cast<ast::NumB>(node.exp);
+            // if (temp_ptr2 != nullptr){
+            //     code_buffer.emit(node.id->var_name + " = zext" + I8 + " " + std::to_string(temp_ptr2->value) + " to" + I32);
+            // }
+            // else if (temp_ptr3 != nullptr){
+            //     code_buffer.emit(node.id->var_name + " = zext" + I8 + " " + std::to_string(temp_ptr3->value) + " to" + I32);
+            // }
+            // else {
+            //     code_buffer.emit("store" + I32 + " " + node.exp->var_name + "," + I32ptr + " " + node.id->var_name);
+            // }
         }
     }
 
@@ -569,22 +687,32 @@ namespace output {
         node.id->var_name = this->code_buffer.freshVar();
         code_buffer.emit(node.id->var_name + " = alloca" + I32);
         if (node.init_exp != nullptr){
-            std::shared_ptr<ast::Num> temp_ptr = std::dynamic_pointer_cast<ast::Num>(node.init_exp);
-            if (temp_ptr != nullptr){
-                code_buffer.emit("store" + I32 + " " + std::to_string(temp_ptr->value) + "," + I32ptr + " " + node.id->var_name);
-                return;
-            }
-            auto temp_ptr2 = std::dynamic_pointer_cast<ast::Bool>(node.init_exp);
-            auto temp_ptr3 = std::dynamic_pointer_cast<ast::NumB>(node.init_exp);
-            if (temp_ptr2 != nullptr){
-                code_buffer.emit(node.id->var_name + " = zext" + I8 + " " + std::to_string(temp_ptr2->value) + " to" + I32);
-            }
-            else if (temp_ptr3 != nullptr){
-                code_buffer.emit(node.id->var_name + " = zext" + I8 + " " + std::to_string(temp_ptr3->value) + " to" + I32);
+            // std::shared_ptr<ast::Num> temp_ptr = std::dynamic_pointer_cast<ast::Num>(node.init_exp);
+            // if (temp_ptr != nullptr){
+            //     code_buffer.emit("store" + I32 + " " + std::to_string(temp_ptr->value) + "," + I32ptr + " " + node.id->var_name);
+            //     return;
+            // }
+            if (std::dynamic_pointer_cast<ast::Bool>(node.init_exp) != nullptr ||
+                std::dynamic_pointer_cast<ast::NumB>(node.init_exp) != nullptr){
+                code_buffer.emit(node.id->var_name + " = zext" + I8 + " " + node.init_exp->var_name + " to" + I32);
             }
             else {
                 code_buffer.emit("store" + I32 + " " + node.init_exp->var_name + "," + I32ptr + " " + node.id->var_name);
+
             }
+
+
+            // auto temp_ptr2 = std::dynamic_pointer_cast<ast::Bool>(node.init_exp);
+            // auto temp_ptr3 = std::dynamic_pointer_cast<ast::NumB>(node.init_exp);
+            // if (temp_ptr2 != nullptr){
+            //     code_buffer.emit(node.id->var_name + " = zext" + I8 + " " + std::to_string(temp_ptr2->value) + " to" + I32);
+            // }
+            // else if (temp_ptr3 != nullptr){
+            //     code_buffer.emit(node.id->var_name + " = zext" + I8 + " " + std::to_string(temp_ptr3->value) + " to" + I32);
+            // }
+            // else {
+            //     code_buffer.emit("store" + I32 + " " + node.init_exp->var_name + "," + I32ptr + " " + node.id->var_name);
+            // }
         }
     }
 

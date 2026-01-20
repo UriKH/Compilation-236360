@@ -173,6 +173,7 @@ namespace output{
         bool returns = false;
         bool is_func_body = false;
         ast::BuiltInType return_type;
+        std::string zero_div_error_var_name;
 
         void begin_scope(const std::shared_ptr<SymbolTable>& parent, bool is_loop_scope){
             printer.beginScope();
