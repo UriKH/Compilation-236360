@@ -455,8 +455,10 @@ namespace output {
     void MyVisitor::visit(ast::Break& node){
         // Check if we are in a loop scope and throw error if not
         std::shared_ptr<SymbolTable> current_table = table_stack.top();
-        while (current_table != nullptr && !current_table->is_loop_scope)
+        while (current_table != nullptr && !current_table->is_loop_scope) {
             current_table = current_table->parent;
+        }
+        code_buffer.emit("br label " + current_table->end_label);
         if (current_table == nullptr)
             errorUnexpectedBreak(node.line);
         return;
@@ -549,13 +551,26 @@ namespace output {
         if (this->last_type != ast::BuiltInType::BOOL)
             errorMismatch(node.condition->line);
 
-        //TODO: do we need to do check if (table_stack.top() == nullptr)?
+        std::string while_label = code_buffer.freshLabel();
+        std::string final_label = code_buffer.freshLabel();
+
+        code_buffer.emit("\n; >>> while block");
+        code_buffer.emit("br i1 " + node.condition->var_name + ", label " + while_label + ", label " + final_label);
+
         begin_scope(table_stack.top(), true);
+
+        table_stack.top()->end_label = final_label;
+        code_buffer.emitLabel(while_label);
+
         is_func_body = true;
+
         node.body->accept(*this);
+        code_buffer.emit("br i1 " + node.condition->var_name + ", label " + while_label + ", label " + final_label);
         is_func_body = false;
 
         end_scope();
+
+        code_buffer.emitLabel(final_label);
         end_scope();
     }
 

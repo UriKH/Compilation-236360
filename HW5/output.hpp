@@ -140,6 +140,8 @@ namespace output{
         struct SymbolTable{
             std::shared_ptr<SymbolTable> parent;
             bool is_loop_scope;
+            std::string end_label;
+
             std::map<std::string, std::shared_ptr<SymbolData>> table;
             int vars_count; // Add a counter for variables only - to handle offset for funcs and vars
 
