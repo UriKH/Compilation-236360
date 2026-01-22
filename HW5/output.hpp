@@ -135,7 +135,10 @@ namespace output{
 
             SymbolData(std::string name, ast::BuiltInType type, int offset = 0,
                 bool is_func = false, std::vector<ast::BuiltInType> func_types = {}, std::string llvm_var = "") :
-                name(std::move(name)), type(type){}
+                name(std::move(name)), type(type), offset(offset), 
+                is_func(is_func), 
+                func_types(std::move(func_types)), 
+                llvm_var(std::move(llvm_var)) {}
         };
 
         struct SymbolTable{

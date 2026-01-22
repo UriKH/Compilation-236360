@@ -520,7 +520,6 @@ namespace output {
 
         node.var_name = this->code_buffer.freshVar();
 
-        // TODO: truncation for byte operations?
         if (node.op == ast::BinOpType::DIV) {
             code_buffer.emit("\n; >>> check division by zero");
             std::string label_true = this->code_buffer.freshLabel();
@@ -563,7 +562,14 @@ namespace output {
                     code_buffer.emit(node.var_name + " = udiv i32 " + node.left->var_name + ", " + node.right->var_name);
                 }
                 break;
-                //TODO: sdiv
+        }
+
+        // truncation for byte operations
+        if (this->last_type == ast::BuiltInType::BYTE) {
+            std::string truncated_val = code_buffer.freshVar();
+            // I want to remain in currect range of byte after operation
+            code_buffer.emit(truncated_val + " = and i32 " + node.var_name + ", 255");
+            node.var_name = truncated_val; 
         }
     }
 
@@ -577,6 +583,10 @@ namespace output {
             errorUnexpectedBreak(node.line);
 
         code_buffer.emit("br label " + current_table->end_label);
+
+        // dummy label to avoid LLVM error about empty block
+        std::string dead_label = code_buffer.freshLabel();
+        code_buffer.emitLabel(dead_label);
         return;
     }
 
@@ -800,6 +810,9 @@ namespace output {
         else
             code_buffer.emit("ret" + I32 + " " + node.exp->var_name);
         
+        // dummy label to avoid LLVM error about empty block
+        std::string dead_label = code_buffer.freshLabel();
+        code_buffer.emitLabel(dead_label);  
     }
 
     void MyVisitor::visit(ast::String& node){
@@ -901,6 +914,10 @@ namespace output {
             errorUnexpectedContinue(node.line);
 
         code_buffer.emit("br label " + current_table->loop_label);
+
+        // dummy label to avoid LLVM error about empty block
+        std::string dead_label = code_buffer.freshLabel();
+        code_buffer.emitLabel(dead_label);
         return;
     }
 
