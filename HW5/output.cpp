@@ -228,28 +228,31 @@ namespace output {
         begin_scope(table_stack.top(), false);
 
         node.condition->accept(*this);
-        std::string if_label = code_buffer.freshLabel();
-        std::string else_label = code_buffer.freshLabel();
-
         // Check if condition isn't bool
         if (this->last_type != ast::BuiltInType::BOOL)
             errorMismatch(node.condition->line);
+
+        // translate condition to i1 for branching
+        std::string cond_i1 = code_buffer.freshVar();
+        code_buffer.emit(cond_i1 + " = icmp ne i32 " + node.condition->var_name + ", 0");
+        
+        std::string if_label = code_buffer.freshLabel();
+        std::string label_end = code_buffer.freshLabel();
+
+        std::string else_label = (node.otherwise) ? code_buffer.freshLabel() : label_end;
         
         code_buffer.emit("\n; >>> if block");
-        code_buffer.emit("br i1 " + node.condition->var_name + ", label " + if_label + ", label " + else_label);
+        code_buffer.emit("br i1 " + cond_i1 + ", label " + if_label + ", label " + else_label);
         code_buffer.emitLabel(if_label);
         node.then->accept(*this);
         // Removing from scope stack
         end_scope();
 
+        code_buffer.emit("br label " + label_end);
+
         // Starting scope for else
         // If there is an else and it is not null
-        if (!node.otherwise){
-            code_buffer.emitLabel(else_label);
-        }
         if (node.otherwise){
-            std::string end_label = code_buffer.freshLabel();
-            code_buffer.emit("br label " + end_label);
             code_buffer.emitLabel(else_label);
             code_buffer.emit("; >>> else block");
             begin_scope(table_stack.top(), false);
@@ -257,38 +260,113 @@ namespace output {
             node.otherwise->accept(*this);
             is_func_body = false;
             end_scope();
-            code_buffer.emitLabel(end_label);
+
+            code_buffer.emit("br label " + label_end);
         }
+        code_buffer.emit("\n; >>> End if block");
+        code_buffer.emitLabel(label_end);
     }
 
     void MyVisitor::visit(ast::Or& node){
+        // Evaluate Left
         node.left->accept(*this);
         if (this->last_type != ast::BuiltInType::BOOL){
             errorMismatch(node.line);
         }
+        std::string left_val = node.left->var_name;
 
+        // translate to i1
+        std::string left_i1 = code_buffer.freshVar();
+        code_buffer.emit(left_i1 + " = icmp ne i32 " + left_val + ", 0");
+
+        std::string label_eval_right = code_buffer.freshLabel();
+        std::string label_end = code_buffer.freshLabel();
+
+        // known label for left side
+        std::string label_left_anchor = code_buffer.freshLabel();
+        code_buffer.emit("br label " + label_left_anchor);
+        code_buffer.emitLabel(label_left_anchor);
+
+        // Branch: if true -> jump to end (Short Circuit), else -> evaluate right
+        code_buffer.emit("br i1 " + left_i1 + ", label " + label_end + ", label " + label_eval_right);
+
+        // Evaluate Right
+        code_buffer.emitLabel(label_eval_right);
         node.right->accept(*this);
         if (this->last_type != ast::BuiltInType::BOOL){
             errorMismatch(node.line);
         }
+        std::string right_val = node.right->var_name;
         
-        node.var_name = this->code_buffer.freshVar();
-        code_buffer.emit(node.var_name + " = or" + I32 + " " + node.left->var_name + ", " + node.right->var_name);
+        std::string right_i1 = code_buffer.freshVar();
+        code_buffer.emit(right_i1 + " = icmp ne i32 " + right_val + ", 0");
+
+        // known label for right side
+        std::string label_right_anchor = code_buffer.freshLabel();
+        code_buffer.emit("br label " + label_right_anchor);
+        code_buffer.emitLabel(label_right_anchor);
+        
+        code_buffer.emit("br label " + label_end);
+
+        // Merge (Phi)
+        code_buffer.emitLabel(label_end);
+        std::string phi_res = code_buffer.freshVar();
+        
+        code_buffer.emit(phi_res + " = phi i1 [ 1, " + label_left_anchor + " ], [ " + right_i1 + ", " + label_right_anchor + " ]");
+        
+        node.var_name = code_buffer.freshVar();
+        code_buffer.emit(node.var_name + " = zext i1 " + phi_res + " to i32");
     }
 
-    void MyVisitor::visit(ast::And& node){
+    void MyVisitor::visit(ast::And& node) {
+        // Evaluate Left
         node.left->accept(*this);
         if (this->last_type != ast::BuiltInType::BOOL){
             errorMismatch(node.line);
         }
+        std::string left_val = node.left->var_name;
+        
+        std::string left_i1 = code_buffer.freshVar();
+        code_buffer.emit(left_i1 + " = icmp ne i32 " + left_val + ", 0");
+        
+        std::string label_eval_right = code_buffer.freshLabel();
+        std::string label_end = code_buffer.freshLabel();
 
+        // known label for left side
+        std::string label_left_anchor = code_buffer.freshLabel();
+        code_buffer.emit("br label " + label_left_anchor);
+        code_buffer.emitLabel(label_left_anchor);
+        
+        // Branch: if true -> evaluate right, else -> jump to end (Short Circuit False)
+        code_buffer.emit("br i1 " + left_i1 + ", label " + label_eval_right + ", label " + label_end);
+        
+        // Evaluate Right
+        code_buffer.emitLabel(label_eval_right);
         node.right->accept(*this);
         if (this->last_type != ast::BuiltInType::BOOL){
             errorMismatch(node.line);
         }
+        std::string right_val = node.right->var_name;
 
-        node.var_name = this->code_buffer.freshVar();
-        code_buffer.emit(node.var_name + " = and" + I32 + " " + node.left->var_name + ", " + node.right->var_name);
+        std::string right_i1 = code_buffer.freshVar();
+        code_buffer.emit(right_i1 + " = icmp ne i32 " + right_val + ", 0");
+        
+        // known label for right side
+        std::string label_right_anchor = code_buffer.freshLabel();
+        code_buffer.emit("br label " + label_right_anchor);
+        code_buffer.emitLabel(label_right_anchor);
+
+        code_buffer.emit("br label " + label_end);
+        
+        // Merge (Phi)
+        code_buffer.emitLabel(label_end);
+        std::string phi_res = code_buffer.freshVar();
+        
+        // Phi: [ 0, left_anchor ], [ right_val, right_anchor ]
+        code_buffer.emit(phi_res + " = phi i1 [ 0, " + label_left_anchor + " ], [ " + right_i1 + ", " + label_right_anchor + " ]");
+        
+        node.var_name = code_buffer.freshVar();
+        code_buffer.emit(node.var_name + " = zext i1 " + phi_res + " to i32");
     }
 
     void MyVisitor::visit(ast::Not& node){
@@ -357,8 +435,13 @@ namespace output {
             // Code buffer emit for args
             if (i > 0) args_str += ", ";    // add comma between args
 
-            // TODO: if bool, do we need to do zext?
-            args_str += I32 + " " + args[i]->var_name;
+            // Check if i8
+            std::string llvm_type_str = "i32";
+            if (arg_type == ast::BuiltInType::STRING) {
+                llvm_type_str = "i8*";
+            }
+
+            args_str += llvm_type_str + " " + args[i]->var_name;
         }
 
         // Set return type for the Call expression
@@ -443,8 +526,9 @@ namespace output {
             std::string label_true = this->code_buffer.freshLabel();
             std::string label_false = this->code_buffer.freshLabel();
 
-            code_buffer.emit(node.var_name + " = icmp eq" + I32 + " " + node.right->var_name + ", 0");
-            code_buffer.emit("br i1 " + node.var_name + ", label %" + label_true + ", label %" + label_false);
+            std::string is_zero = code_buffer.freshVar();
+            code_buffer.emit(is_zero + " = icmp eq" + I32 + " " + node.right->var_name + ", 0");
+            code_buffer.emit("br i1 " + is_zero + ", label " + label_true + ", label " + label_false);
 
             code_buffer.emitLabel(label_true);
             
@@ -454,7 +538,9 @@ namespace output {
                 zero_div_error_var_name = code_buffer.emitString(err_msg);
             }
             
-            code_buffer << "call" + I32 + "(i8*, ...) @print(i8 *getelementptr inbounds ([" + len + " x i8], [" + len + " x i8]* " + zero_div_error_var_name + ", i32 0, i32 0))\n";
+            code_buffer.emit("call void @print(i8* getelementptr ([" + len + " x i8], [" + len + " x i8]* " + zero_div_error_var_name + ", i32 0, i32 0))");
+            code_buffer.emit("call void @exit(i32 0)");
+            code_buffer.emit("unreachable");
             
             code_buffer.emitLabel(label_false);
             code_buffer.emit("; >>> end check division by zero\n");
@@ -500,6 +586,33 @@ namespace output {
         insert(std::make_shared<SymbolData>("print", ast::BuiltInType::VOID), true, { ast::BuiltInType::STRING });
         insert(std::make_shared<SymbolData>("printi", ast::BuiltInType::VOID), true, { ast::BuiltInType::INT });
 
+        code_buffer.emit("declare i32 @scanf(i8*, ...)");
+        code_buffer.emit("declare i32 @printf(i8*, ...)");
+        code_buffer.emit("declare void @exit(i32)");
+        code_buffer.emit("@.int_specifier_scan = constant [3 x i8] c\"%d\\00\"");
+        code_buffer.emit("@.int_specifier = constant [4 x i8] c\"%d\\0A\\00\"");
+        code_buffer.emit("@.str_specifier = constant [4 x i8] c\"%s\\0A\\00\"");
+
+        code_buffer.emit("define i32 @readi(i32) {");
+        code_buffer.emit("      %ret_val = alloca i32");
+        code_buffer.emit("      %spec_ptr = getelementptr [3 x i8], [3 x i8]* @.int_specifier_scan, i32 0, i32 0");
+        code_buffer.emit("      call i32 (i8*, ...) @scanf(i8* %spec_ptr, i32* %ret_val)");
+        code_buffer.emit("      %val = load i32, i32* %ret_val");
+        code_buffer.emit("      ret i32 %val");
+        code_buffer.emit("}");
+
+        code_buffer.emit("define void @printi(i32) {");
+        code_buffer.emit("      %spec_ptr = getelementptr [4 x i8], [4 x i8]* @.int_specifier, i32 0, i32 0");
+        code_buffer.emit("      call i32 (i8*, ...) @printf(i8* %spec_ptr, i32 %0)");
+        code_buffer.emit("      ret void");
+        code_buffer.emit("}");
+
+        code_buffer.emit("define void @print(i8*) {");
+        code_buffer.emit("      %spec_ptr = getelementptr [4 x i8], [4 x i8]* @.str_specifier, i32 0, i32 0");
+        code_buffer.emit("      call i32 (i8*, ...) @printf(i8* %spec_ptr, i8* %0)");
+        code_buffer.emit("      ret void");
+        code_buffer.emit("}");
+
         bool found_main = false;
         for (const auto& func : node.funcs){
             last_func_id = func->id->value;
@@ -529,7 +642,7 @@ namespace output {
         }
 
         table_stack.pop();
-        std::cout << printer;
+        //std::cout << printer;
     }
 
     void MyVisitor::visit(ast::RelOp& node){
@@ -551,42 +664,56 @@ namespace output {
         // code buffer emit
         node.var_name = this->code_buffer.freshVar();
 
+        std::string op;
         switch (node.op) {
             case (ast::RelOpType::EQ):
-                code_buffer.emit(node.var_name + " = icmp eq" + I32 + " " + node.left->var_name + ", " + node.right->var_name);
+                op = "eq";
                 break;
             case (ast::RelOpType::NE):
-                code_buffer.emit(node.var_name + " = icmp ne" + I32 + " " + node.left->var_name + ", " + node.right->var_name);
+                op = "ne";
                 break;
             case (ast::RelOpType::LT):
-                code_buffer.emit(node.var_name + " = icmp slt" + I32 + " " + node.left->var_name + ", " + node.right->var_name);
+                op = "slt";
                 break;
             case (ast::RelOpType::GT):
-                code_buffer.emit(node.var_name + " = icmp sgt" + I32 + " " + node.left->var_name + ", " + node.right->var_name);
+                op = "sgt";
                 break;
             case (ast::RelOpType::LE):
-                code_buffer.emit(node.var_name + " = icmp sle" + I32 + " " + node.left->var_name + ", " + node.right->var_name);
+                op = "sle";
                 break;
             case (ast::RelOpType::GE):
-                code_buffer.emit(node.var_name + " = icmp sge" + I32 + " " + node.left->var_name + ", " + node.right->var_name);
+                op = "sge";
                 break;
         }
+
+        std::string i1_val = code_buffer.freshVar();
+        code_buffer.emit(i1_val + " = icmp " + op + I32 + " " + node.left->var_name + ", " + node.right->var_name);
+        node.var_name = code_buffer.freshVar(); // התוצאה הסופית שתישמר בעץ
+        code_buffer.emit(node.var_name + " = zext i1 " + i1_val + " to i32");
     }
 
     void MyVisitor::visit(ast::While& node){
         begin_scope(table_stack.top(), false);
-
-        node.condition->accept(*this);
-        // Check if condition isn't bool
-        if (this->last_type != ast::BuiltInType::BOOL)
-            errorMismatch(node.condition->line);
+        code_buffer.emit("\n; >>> while block");
 
         std::string while_label = code_buffer.freshLabel();
         std::string cond_label = code_buffer.freshLabel();
         std::string final_label = code_buffer.freshLabel();
 
-        code_buffer.emit("\n; >>> while block");
-        code_buffer.emit("br i1 " + node.condition->var_name + ", label " + while_label + ", label " + final_label);
+        code_buffer.emit("br label " + cond_label);
+        // Doing condition check again
+        code_buffer.emitLabel(cond_label);
+        node.condition->accept(*this);
+
+        // Check if condition isn't bool
+        if (this->last_type != ast::BuiltInType::BOOL)
+            errorMismatch(node.condition->line);
+
+        // translate condition to i1 for branching
+        std::string cond2_i1 = code_buffer.freshVar();
+        code_buffer.emit(cond2_i1 + " = icmp ne i32 " + node.condition->var_name + ", 0");
+
+        code_buffer.emit("br i1 " + cond2_i1 + ", label " + while_label + ", label " + final_label);
 
         begin_scope(table_stack.top(), true);
 
@@ -599,21 +726,25 @@ namespace output {
         is_func_body = true;
 
         node.body->accept(*this);
-
-        // Doing condition check again
-        code_buffer.emitLabel(cond_label);
-        code_buffer.emit("br i1 " + node.condition->var_name + ", label " + while_label + ", label " + final_label);
+        code_buffer.emit("br label " + cond_label);
+        
         is_func_body = false;
 
         end_scope();
 
+        code_buffer.emit("\n; >>> End while block");
         code_buffer.emitLabel(final_label);
         end_scope();
     }
 
     void MyVisitor::visit(ast::Assign& node){
-        node.id->accept(*this);
-        ast::BuiltInType id_type = this->last_type;
+        std::shared_ptr<SymbolData> data = check_exists_by_name(node.id->value);
+        if (data == nullptr)
+            errorUndef(node.line, node.id->value);
+        std::string target_address = data->llvm_var;
+
+        //node.id->accept(*this);
+        ast::BuiltInType id_type = data->type;
 
         node.exp->accept(*this);
         ast::BuiltInType exp_type = this->last_type;
@@ -628,10 +759,14 @@ namespace output {
         if (node.exp != nullptr){
             if (std::dynamic_pointer_cast<ast::Bool>(node.exp) != nullptr ||
                 std::dynamic_pointer_cast<ast::NumB>(node.exp) != nullptr){
-                code_buffer.emit(node.id->var_name + " = zext" + I8 + " " + node.exp->var_name + " to" + I32);
+
+                // temp var for zext
+                std::string zext_res = code_buffer.freshVar();
+                code_buffer.emit(zext_res + " = zext i8 " + node.exp->var_name + " to i32");
+                code_buffer.emit("store i32 " + zext_res + ", i32* " + target_address);
             }
             else {
-                code_buffer.emit("store" + I32 + " " + node.exp->var_name + "," + I32ptr + " " + node.id->var_name);
+                code_buffer.emit("store" + I32 + " " + node.exp->var_name + "," + I32ptr + " " + target_address);
             }
         }
     }
@@ -676,7 +811,7 @@ namespace output {
 
         node.var_name = code_buffer.freshVar();
         //TODO: not sure about i8 - maybe need i32
-        code_buffer.emit(node.var_name + " = getelementptr [" + std::to_string(len) + " x i8], [" + std::to_string(len) + " x i8]* " + str + ", i32 0, i32 0)");
+        code_buffer.emit(node.var_name + " = getelementptr [" + std::to_string(len) + " x i8], [" + std::to_string(len) + " x i8]* " + str + ", i32 0, i32 0");
     }
 
     // we have ExpList only for function calls
@@ -738,32 +873,22 @@ namespace output {
 
 
         if (node.init_exp != nullptr){
-            // std::shared_ptr<ast::Num> temp_ptr = std::dynamic_pointer_cast<ast::Num>(node.init_exp);
-            // if (temp_ptr != nullptr){
-            //     code_buffer.emit("store" + I32 + " " + std::to_string(temp_ptr->value) + "," + I32ptr + " " + node.id->var_name);
-            //     return;
-            // }
             if (std::dynamic_pointer_cast<ast::Bool>(node.init_exp) != nullptr ||
                 std::dynamic_pointer_cast<ast::NumB>(node.init_exp) != nullptr){
-                code_buffer.emit(node.id->var_name + " = zext" + I8 + " " + node.init_exp->var_name + " to" + I32);
+                // temp var fore zext
+                std::string zext_res = code_buffer.freshVar();
+                code_buffer.emit(zext_res + " = zext" + I8 + " " + node.init_exp->var_name + " to" + I32);
+
+                // saving to defined var
+                code_buffer.emit("store i32 " + zext_res + ", i32* " + node.id->var_name);
             }
             else {
                 code_buffer.emit("store" + I32 + " " + node.init_exp->var_name + "," + I32ptr + " " + node.id->var_name);
 
             }
-
-
-            // auto temp_ptr2 = std::dynamic_pointer_cast<ast::Bool>(node.init_exp);
-            // auto temp_ptr3 = std::dynamic_pointer_cast<ast::NumB>(node.init_exp);
-            // if (temp_ptr2 != nullptr){
-            //     code_buffer.emit(node.id->var_name + " = zext" + I8 + " " + std::to_string(temp_ptr2->value) + " to" + I32);
-            // }
-            // else if (temp_ptr3 != nullptr){
-            //     code_buffer.emit(node.id->var_name + " = zext" + I8 + " " + std::to_string(temp_ptr3->value) + " to" + I32);
-            // }
-            // else {
-            //     code_buffer.emit("store" + I32 + " " + node.init_exp->var_name + "," + I32ptr + " " + node.id->var_name);
-            // }
+        } else {
+            // deafult initialization to 0
+            code_buffer.emit("store i32 0, i32* " + node.id->var_name);
         }
     }
 
@@ -780,17 +905,77 @@ namespace output {
     }
 
     void MyVisitor::visit(ast::FuncDecl& node){
-        begin_scope(table_stack.top(), false);
 
+        std::string func_name = node.id->value;
+        std::string ret_type;
+        if (node.return_type->type == ast::BuiltInType::VOID) 
+            ret_type = "void";
+        else if (node.return_type->type == ast::BuiltInType::STRING) 
+            ret_type = "i8*";
+        else 
+            ret_type = "i32";
+    
+        // Build Argument List for 'define'
+        std::string args_str = "";
+        auto& formals = node.formals->formals;
+        for (size_t i = 0; i < formals.size(); ++i) {
+            if (i > 0) args_str += ", ";
+            if (formals[i]->type->type == ast::BuiltInType::STRING)
+                args_str += "i8*";
+            else if (formals[i]->type->type == ast::BuiltInType::VOID)
+                args_str += "void";
+            else
+                args_str += "i32";
+        }
+    
+        code_buffer.emit("define " + ret_type + " @" + func_name + "(" + args_str + ") {");
+    
+        // Prepare scope
+        begin_scope(table_stack.top(), false);
         returns = false;
         is_func_body = true;
-
         return_type = node.return_type->type;
+    
+        // Allocate stack space for arguments
+        // LLVM arguments come in registers %0, %1, ...
+        // We need to store them in stack variables so we can modify them (since args are mutable in C/FanC)
+        for (size_t i = 0; i < formals.size(); ++i) {
+            auto formal = formals[i];
+            std::string arg_llvm_type;
+            if (formal->type->type == ast::BuiltInType::STRING)
+                arg_llvm_type = "i8*";
+            else if (formal->type->type == ast::BuiltInType::VOID)
+                arg_llvm_type = "void";
+            else
+                arg_llvm_type = "i32";
 
-        node.return_type->accept(*this);
-        node.formals->accept(*this);
+            // Allocate stack slot
+            std::string stack_loc = code_buffer.freshVar(); // %tX
+            code_buffer.emit(stack_loc + " = alloca " + arg_llvm_type);
+
+            // Store argument from register to stack
+            // Note: CodeBuffer::freshVar() creates %t0, %t1... 
+            // We need to refer to the function arguments which are implicit %0, %1...
+            std::string arg_reg = "%" + std::to_string(i);
+            code_buffer.emit("store " + arg_llvm_type + " " + arg_reg + ", " + arg_llvm_type + "* " + stack_loc);
+        
+            // Add to symbol table for variable lookup
+            std::shared_ptr<SymbolData> new_data = std::make_shared<SymbolData>(formal->id->value, formal->type->type);
+            new_data->llvm_var = stack_loc;
+            insert(new_data);
+        }
+    
         node.body->accept(*this);
-
+    
+        // Handle implicit return for void functions or if user forgot return
+        if (node.return_type->type == ast::BuiltInType::VOID) {
+            code_buffer.emit("ret void");
+        } else {
+            // Adding a default return 0 if no return was encountered
+            code_buffer.emit("ret i32 0"); 
+        }
+    
+        code_buffer.emit("}");
         end_scope();
     }
 
