@@ -104,7 +104,7 @@ namespace output {
 
     /* CodeBuffer class */
 
-    CodeBuffer::CodeBuffer() : labelCount(0), varCount(0), stringCount(0) {}
+    CodeBuffer::CodeBuffer() : labelCount(0), varCount(0), stringCount(0), indent("") {}
 
     std::string CodeBuffer::freshLabel() {
         return "%label_" + std::to_string(labelCount++);
@@ -121,7 +121,7 @@ namespace output {
     }
 
     void CodeBuffer::emit(const std::string &str) {
-        buffer << str << std::endl;
+        buffer << indent << str << std::endl;
     }
 
     void CodeBuffer::emitLabel(const std::string &label) {
@@ -227,6 +227,7 @@ namespace output {
     void MyVisitor::visit(ast::If& node){
         begin_scope(table_stack.top(), false);
 
+        code_buffer.emit("; >>> evaluating if condition");
         node.condition->accept(*this);
         // Check if condition isn't bool
         if (this->last_type != ast::BuiltInType::BOOL)
@@ -241,8 +242,8 @@ namespace output {
 
         std::string else_label = (node.otherwise) ? code_buffer.freshLabel() : label_end;
         
-        code_buffer.emit("\n; >>> if block");
         code_buffer.emit("br i1 " + cond_i1 + ", label " + if_label + ", label " + else_label);
+        code_buffer.emit("; >>> then block");
         code_buffer.emitLabel(if_label);
         node.then->accept(*this);
         // Removing from scope stack
@@ -253,8 +254,8 @@ namespace output {
         // Starting scope for else
         // If there is an else and it is not null
         if (node.otherwise){
-            code_buffer.emitLabel(else_label);
             code_buffer.emit("; >>> else block");
+            code_buffer.emitLabel(else_label);
             begin_scope(table_stack.top(), false);
             is_func_body = true;
             node.otherwise->accept(*this);
@@ -263,7 +264,7 @@ namespace output {
 
             code_buffer.emit("br label " + label_end);
         }
-        code_buffer.emit("\n; >>> End if block");
+        code_buffer.emit("; >>> end if");
         code_buffer.emitLabel(label_end);
     }
 
@@ -312,7 +313,7 @@ namespace output {
         code_buffer.emitLabel(label_end);
         std::string phi_res = code_buffer.freshVar();
         
-        code_buffer.emit(phi_res + " = phi i1 [ 1, " + label_left_anchor + " ], [ " + right_i1 + ", " + label_right_anchor + " ]");
+        code_buffer.emit(phi_res + " = phi i1 [ true, " + label_left_anchor + " ], [ " + right_i1 + ", " + label_right_anchor + " ]");
         
         node.var_name = code_buffer.freshVar();
         code_buffer.emit(node.var_name + " = zext i1 " + phi_res + " to i32");
@@ -595,33 +596,36 @@ namespace output {
         table_stack.push(std::make_shared<SymbolTable>(nullptr, false));
         insert(std::make_shared<SymbolData>("print", ast::BuiltInType::VOID), true, { ast::BuiltInType::STRING });
         insert(std::make_shared<SymbolData>("printi", ast::BuiltInType::VOID), true, { ast::BuiltInType::INT });
-
+        code_buffer.emit("; =================================== Declarations of built-in functions ===================================");
         code_buffer.emit("declare i32 @scanf(i8*, ...)");
         code_buffer.emit("declare i32 @printf(i8*, ...)");
         code_buffer.emit("declare void @exit(i32)");
         code_buffer.emit("@.int_specifier_scan = constant [3 x i8] c\"%d\\00\"");
         code_buffer.emit("@.int_specifier = constant [4 x i8] c\"%d\\0A\\00\"");
-        code_buffer.emit("@.str_specifier = constant [4 x i8] c\"%s\\0A\\00\"");
+        code_buffer.emit("@.str_specifier = constant [4 x i8] c\"%s\\0A\\00\"\n");
 
+        code_buffer.emit("; =================================== Definitions of built-in functions ===================================");
         code_buffer.emit("define i32 @readi(i32) {");
-        code_buffer.emit("      %ret_val = alloca i32");
-        code_buffer.emit("      %spec_ptr = getelementptr [3 x i8], [3 x i8]* @.int_specifier_scan, i32 0, i32 0");
-        code_buffer.emit("      call i32 (i8*, ...) @scanf(i8* %spec_ptr, i32* %ret_val)");
-        code_buffer.emit("      %val = load i32, i32* %ret_val");
-        code_buffer.emit("      ret i32 %val");
-        code_buffer.emit("}");
+        code_buffer.emit("\t%ret_val = alloca i32");
+        code_buffer.emit("\t%spec_ptr = getelementptr [3 x i8], [3 x i8]* @.int_specifier_scan, i32 0, i32 0");
+        code_buffer.emit("\tcall i32 (i8*, ...) @scanf(i8* %spec_ptr, i32* %ret_val)");
+        code_buffer.emit("\t%val = load i32, i32* %ret_val");
+        code_buffer.emit("\tret i32 %val");
+        code_buffer.emit("}\n");
 
         code_buffer.emit("define void @printi(i32) {");
-        code_buffer.emit("      %spec_ptr = getelementptr [4 x i8], [4 x i8]* @.int_specifier, i32 0, i32 0");
-        code_buffer.emit("      call i32 (i8*, ...) @printf(i8* %spec_ptr, i32 %0)");
-        code_buffer.emit("      ret void");
-        code_buffer.emit("}");
+        code_buffer.emit("\t%spec_ptr = getelementptr [4 x i8], [4 x i8]* @.int_specifier, i32 0, i32 0");
+        code_buffer.emit("\tcall i32 (i8*, ...) @printf(i8* %spec_ptr, i32 %0)");
+        code_buffer.emit("\tret void");
+        code_buffer.emit("}\n");
 
         code_buffer.emit("define void @print(i8*) {");
-        code_buffer.emit("      %spec_ptr = getelementptr [4 x i8], [4 x i8]* @.str_specifier, i32 0, i32 0");
-        code_buffer.emit("      call i32 (i8*, ...) @printf(i8* %spec_ptr, i8* %0)");
-        code_buffer.emit("      ret void");
-        code_buffer.emit("}");
+        code_buffer.emit("\t%spec_ptr = getelementptr [4 x i8], [4 x i8]* @.str_specifier, i32 0, i32 0");
+        code_buffer.emit("\tcall i32 (i8*, ...) @printf(i8* %spec_ptr, i8* %0)");
+        code_buffer.emit("\tret void");
+        code_buffer.emit("}\n");
+
+        code_buffer.emit("; =================================== End of built-in functions ===================================\n");
 
         bool found_main = false;
         for (const auto& func : node.funcs){
@@ -704,8 +708,7 @@ namespace output {
 
     void MyVisitor::visit(ast::While& node){
         begin_scope(table_stack.top(), false);
-        code_buffer.emit("\n; >>> while block");
-
+        code_buffer.emit("; >>> Begin while condition evaluation");
         std::string while_label = code_buffer.freshLabel();
         std::string cond_label = code_buffer.freshLabel();
         std::string final_label = code_buffer.freshLabel();
@@ -731,6 +734,7 @@ namespace output {
         table_stack.top()->end_label = final_label;
         table_stack.top()->loop_label = cond_label;
 
+        code_buffer.emit("; >>> Begin while code");
         code_buffer.emitLabel(while_label);
 
         is_func_body = true;
@@ -742,7 +746,7 @@ namespace output {
 
         end_scope();
 
-        code_buffer.emit("\n; >>> End while block");
+        code_buffer.emit("; >>> end while block");
         code_buffer.emitLabel(final_label);
         end_scope();
     }
@@ -946,7 +950,7 @@ namespace output {
         }
     
         code_buffer.emit("define " + ret_type + " @" + func_name + "(" + args_str + ") {");
-    
+        code_buffer.indent = "\t";
         // Prepare scope
         begin_scope(table_stack.top(), false);
         returns = false;
@@ -991,8 +995,8 @@ namespace output {
             // Adding a default return 0 if no return was encountered
             code_buffer.emit("ret i32 0"); 
         }
-    
-        code_buffer.emit("}");
+        code_buffer.indent = "";
+        code_buffer.emit("}\n");
         end_scope();
     }
 

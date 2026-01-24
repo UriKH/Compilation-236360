@@ -25,20 +25,24 @@ class Colors:
 
 def get_test_files(directory):
     """Finds all input files ending in .in or .in.txt"""
-    # Look for *.in
     files = glob.glob(os.path.join(directory, "*.in"))
-    # Look for *.in.txt
     files += glob.glob(os.path.join(directory, "*.in.txt"))
     return sorted(files)
 
 def get_expected_output_file(input_file):
     """Determines the expected output file path based on input name"""
-    # Logic: replace .in.txt with .out, or .in with .out
     if input_file.endswith(".in.txt"):
         return input_file.replace(".in.txt", ".out")
     elif input_file.endswith(".in"):
         return input_file.replace(".in", ".out")
     return None
+
+def normalize_output(text):
+    """
+    Removes carriage returns and strips leading/trailing whitespace.
+    This ensures 'Line1\r\nLine2' == 'Line1\nLine2'.
+    """
+    return text.replace('\r', '').strip()
 
 def run_tests():
     # 1. Compile the project first
@@ -72,7 +76,6 @@ def run_tests():
         # --- STEP A: Run Compiler (./hw5 < input) ---
         try:
             with open(input_file, 'r') as fin:
-                # We capture stdout because your main.cpp prints the IR/Errors to cout
                 compiler_process = subprocess.run(
                     [COMPILER_EXEC], 
                     stdin=fin, 
@@ -86,11 +89,7 @@ def run_tests():
         compiler_output = compiler_process.stdout
         
         # --- STEP B: Determine if we run lli or check for compile errors ---
-        # Your error functions (errorUndef, errorSyn, etc.) print "line X:" to stdout.
-        # If the output contains "line <number>:", it's a compilation error test.
-        
         actual_output = ""
-        
         is_compile_error = "line " in compiler_output and ":" in compiler_output
         
         if is_compile_error:
@@ -98,39 +97,41 @@ def run_tests():
             actual_output = compiler_output
         else:
             # The test expects valid execution. Run LLI.
-            # Save IR to a temporary file
             ll_file_path = input_file + ".ll"
             with open(ll_file_path, "w") as fll:
                 fll.write(compiler_output)
             
             # Run lli
             lli_process = subprocess.run(
-                [LLI_EXEC, ll_file_path],
+                ['lli', '-force-interpreter=true', ll_file_path],
                 capture_output=True,
                 text=True
             )
             
             if lli_process.returncode != 0:
-                # lli crashed (segfault or bad IR)
-                actual_output = f"LLI ERROR:\n{lli_process.stderr}"
+                actual_output = f"LLI ERROR:\nSTDOUT:\n{lli_process.stdout}\nSTDERR:\n{lli_process.stderr}"
             else:
                 actual_output = lli_process.stdout
             
             # Cleanup .ll file (optional)
-            # os.remove(ll_file_path) 
+            # if os.path.exists(ll_file_path):
+            #     os.remove(ll_file_path)
 
         # --- STEP C: Compare Results ---
         with open(expected_file, 'r') as fexp:
             expected_content = fexp.read()
 
-        # Normalize line endings and strip whitespace
-        if actual_output.strip() == expected_content.strip():
+        # FIX: Use the normalize_output helper to handle \r and whitespace
+        norm_actual = normalize_output(actual_output)
+        norm_expected = normalize_output(expected_content)
+
+        if norm_actual == norm_expected:
             print(f"{Colors.OKGREEN}[PASS] {test_name}{Colors.ENDC}")
             passed += 1
         else:
             print(f"{Colors.FAIL}[FAIL] {test_name}{Colors.ENDC}")
-            print(f"{Colors.BOLD}Expected:{Colors.ENDC}\n{expected_content.strip()}")
-            print(f"{Colors.BOLD}Got:{Colors.ENDC}\n{actual_output.strip()}")
+            print(f"{Colors.BOLD}Expected:{Colors.ENDC}\n{norm_expected}")
+            print(f"{Colors.BOLD}Got:{Colors.ENDC}\n{norm_actual}")
             print("-" * 30)
             failed += 1
 
